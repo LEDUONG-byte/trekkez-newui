@@ -1,0 +1,44 @@
+{
+  "source_archives": [
+    "trekkez-newui-main.zip",
+    "TrekkEZ_Source.zip",
+    "TrekkEZ_Backend_Only_Overlay.zip"
+  ],
+  "backend_scope": "Only capabilities represented in New UI screens/components",
+  "original_modules_preserved": [
+    "services/core/supabase-base.ts",
+    "services/core/supabase-client.ts",
+    "services/auth/auth-session.ts",
+    "services/account/account-supabase.ts",
+    "services/team/team-supabase.ts",
+    "services/team/team-invitation.ts",
+    "services/team/team-join-request.ts",
+    "services/plan/plan-team-supabase.ts",
+    "services/plan/plan-item-catalog.ts",
+    "services/plan/trip-time.ts",
+    "services/plan/mapbox-directions.ts",
+    "services/community/community-supabase.ts",
+    "services/community/community-post-actions.ts",
+    "services/community/social-supabase.ts",
+    "types/community.ts",
+    "types/plan.ts",
+    "types/route.ts",
+    "types/team.ts"
+  ],
+  "reworked_modules": [
+    "types/activity.ts",
+    "services/activity/activity-profile.ts (read-only Profile stats)"
+  ],
+  "excluded_modules": [
+    "notification/notification-supabase.ts",
+    "plan/route-navigation.ts",
+    "activity/activity-supabase.ts",
+    "Watch/Zepp bridge",
+    "native GPS tracker",
+    "Safety",
+    "Shop",
+    "offline SQLite tracking"
+  ],
+  "frontend_file_mutations": 0,
+  "runtime_integrated": false
+}
