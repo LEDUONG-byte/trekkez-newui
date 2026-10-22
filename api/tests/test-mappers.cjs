@@ -18,7 +18,7 @@ const team = {
 };
 assert.deepEqual(moduleExports.teamToCard(team), {
   id:'t1', name:'Test Team', isOwnedByYou:true, color:'#BAE6FD', membersCount:3,
-  description:'Outdoor', createdAt:'2026-10-22',
+  description:'Outdoor', createdAt:'2026-10-22', isJoined:true, allowMatchmaking:true,
 });
 const plan = {
   id:'p1', title:'Climb', ownerId:'u1', notes:'Meet at 7',

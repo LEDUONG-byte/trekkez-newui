@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState, useCallback } from 'react';
 import {
     StyleSheet,
     View,
@@ -8,7 +8,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Octicons } from '@expo/vector-icons';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
+import { loadExploreFeed } from '../api/integration/newui-gateway';
 
 import PostCard, { PostData } from '../components/PostCard';
 
@@ -16,57 +17,22 @@ export interface PostDetailItem extends PostData {
     id: string;
 }
 
-const MOCK_POSTS_DETAIL: PostDetailItem[] = [
-    {
-        id: 'post_1',
-        username: 'duong_duong',
-        avatar: require('../assets/images/logoW.png'),
-        images: [require('../assets/images/onboarding1.png')],
-        likeCount: 1,
-        commentCount: 1,
-        caption: 'Chuyến đi trải nghiệm thực tế tuyệt vời!',
-        isFollowing: false,
-        tags: ['#outdoor', '#nature', '#trip', '#relax', '#enjoy'],
-    },
-    {
-        id: 'post_2',
-        username: 'duong_duong',
-        avatar: require('../assets/images/logoW.png'),
-        images: [require('../assets/images/onboarding2.png')],
-        likeCount: 12,
-        commentCount: 3,
-        caption: 'Thưởng thức trà chanh chiều nắng ấm.',
-        isFollowing: false,
-        tags: ['#tea', '#cozy'],
-    },
-    {
-        id: 'post_3',
-        username: 'duong_duong',
-        avatar: require('../assets/images/logoW.png'),
-        images: [require('../assets/images/logoW.png')],
-        likeCount: 8,
-        commentCount: 0,
-        caption: 'Logo dự án mới ra mắt.',
-        isFollowing: true,
-    },
-    {
-        id: 'post_4',
-        username: 'duong_duong',
-        avatar: require('../assets/images/logoW.png'),
-        images: [require('../assets/images/onboarding1.png')],
-        likeCount: 25,
-        commentCount: 5,
-        caption: 'Kỷ niệm hành trình.',
-        isFollowing: false,
-    },
-];
-
 export default function PostScreen() {
     const router = useRouter();
     const params = useLocalSearchParams<{ postId?: string; initialIndex?: string }>();
     const flatListRef = useRef<FlatList>(null);
+    const [posts,setPosts]=useState<PostDetailItem[]>([]);
+    const [loadError,setLoadError]=useState('');
+    useFocusEffect(useCallback(()=>{
+      let active=true;
+      void loadExploreFeed().then(cards=>{
+        if(!active)return;
+        setPosts(cards.filter(c=>c.itemType==='POST').map(c=>({id:c.id,username:c.username,images:c.images,tags:c.tags,caption:c.caption,likeCount:c.likeCount,commentCount:c.commentCount,isLiked:c.isLiked,isBookmarked:c.isBookmarked,isFollowing:c.isFollowing})));
+        setLoadError('');
+      }).catch(e=>{if(active)setLoadError(e instanceof Error?e.message:String(e));});
+      return()=>{active=false;};
+    },[]));
 
-    const startIndex = params.initialIndex ? parseInt(params.initialIndex, 10) : 0;
 
     const renderHeader = () => (
         <View style={styles.headerContainer}>
@@ -94,18 +60,18 @@ export default function PostScreen() {
             <FlatList
                 ref={flatListRef}
                 style={styles.feedList}
-                data={MOCK_POSTS_DETAIL}
+                data={params.postId ? posts.filter(p=>p.id===params.postId):posts}
                 keyExtractor={(item, index) => item.id ?? index.toString()}
-                initialScrollIndex={startIndex >= 0 && startIndex < MOCK_POSTS_DETAIL.length ? startIndex : 0}
+                initialScrollIndex={0}
                 onScrollToIndexFailed={(info) => {
                     setTimeout(() => {
                         flatListRef.current?.scrollToIndex({ index: info.index, animated: false });
                     }, 100);
                 }}
-                ListHeaderComponent={renderHeader}
+                ListHeaderComponent={<>{renderHeader()}{loadError?<Text style={{color:'#B91C1C',padding:16}}>{loadError}</Text>:null}</>}
                 renderItem={({ item }) => (
                     <View style={styles.cardItemWrapper}>
-                        <PostCard {...item} />
+                        <PostCard {...item} onCommentPress={()=>router.push({pathname:'/comments',params:{postId:item.id}})}/>
                     </View>
                 )}
                 ItemSeparatorComponent={() => <View style={styles.dashedSeparator} />}

@@ -221,7 +221,7 @@ export default function ProfileScreen() {
                 <View style={styles.headerBar}>
                     <Text style={styles.headerTitle}>PROFILE</Text>
                     <View style={styles.headerRightBtns}>
-                        <TouchableOpacity style={styles.circleHeaderBtn} activeOpacity={0.7}>
+                        <TouchableOpacity style={styles.circleHeaderBtn} activeOpacity={0.7} onPress={() => router.push('/edit-profile')}>
                             <Octicons name="upload" size={18} color="#0F172A" />
                         </TouchableOpacity>
                         <TouchableOpacity style={styles.circleHeaderBtn} activeOpacity={0.7} onPress={() => setSettingsVisible(true)}>

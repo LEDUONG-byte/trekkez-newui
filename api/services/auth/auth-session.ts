@@ -1,5 +1,7 @@
 import 'react-native-url-polyfill/auto';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Linking, Platform } from 'react-native';
+import * as ExpoLinking from 'expo-linking';
 import { createClient } from '@supabase/supabase-js';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../core/supabase-base';
 
@@ -15,6 +17,7 @@ export const authClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,
+    flowType: 'pkce',
   },
 });
 
@@ -109,5 +112,47 @@ export async function signInWithGoogleToken(idToken: string): Promise<StoredAuth
   if (error) throw error;
   const session = normalizeSession(data.session);
   if (!session) throw new Error('Google không trả về session.');
+  return session;
+}
+
+/**
+ * Start Google via Supabase's hosted OAuth endpoint (PKCE).
+ * No Google secret or ID token is embedded in this client.
+ * The redirect MUST be allowlisted in Supabase Auth URL Configuration.
+ */
+export async function beginGoogleOAuth(): Promise<void> {
+  const redirectTo = Platform.OS === 'web' && typeof window !== 'undefined'
+    ? `${window.location.origin}/login`
+    : ExpoLinking.createURL('/login');
+  const { data, error } = await authClient.auth.signInWithOAuth({
+    provider: 'google',
+    options: {
+      redirectTo,
+      skipBrowserRedirect: true,
+      queryParams: { prompt: 'select_account' },
+    },
+  });
+  if (error) throw error;
+  if (!data.url) throw new Error('Supabase không trả về địa chỉ Google OAuth.');
+  await Linking.openURL(data.url);
+}
+
+/** Handle callback only after user returns from Google. */
+export async function finishGoogleOAuth(callbackUrl: string): Promise<StoredAuthSession | null> {
+  const queryPart = callbackUrl.split('?')[1]?.split('#')[0] || '';
+  const fragmentPart = callbackUrl.split('#')[1] || '';
+  const parse = (input: string) => new URLSearchParams(input);
+  const query = parse(queryPart);
+  const hash = parse(fragmentPart);
+  const description = query.get('error_description') || hash.get('error_description');
+  if (query.has('error') || hash.has('error')) {
+    throw new Error(description || query.get('error') || hash.get('error') || 'Google OAuth thất bại.');
+  }
+  const code = query.get('code') || hash.get('code');
+  if (!code) return null;
+  const { data, error } = await authClient.auth.exchangeCodeForSession(code);
+  if (error) throw error;
+  const session = normalizeSession(data.session);
+  if (!session?.userId) throw new Error('Google OAuth không trả về phiên đăng nhập hợp lệ.');
   return session;
 }

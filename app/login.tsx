@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
     StyleSheet,
     View,
@@ -11,11 +11,13 @@ import {
     ActivityIndicator,
     KeyboardAvoidingView,
     Platform,
+    Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { newUiAuth } from '../api/integration/newui-gateway';
+import { beginGoogleOAuth, finishGoogleOAuth } from '../api/services/auth/auth-session';
 
 const { width, height } = Dimensions.get('window');
 
@@ -28,6 +30,7 @@ export default function LoginScreen() {
     const [pending, setPending] = useState(false);
     const [authError, setAuthError] = useState('');
     const [googleMessage, setGoogleMessage] = useState('');
+    const oauthHandled = useRef('');
 
     useEffect(() => {
         let alive = true;
@@ -37,9 +40,41 @@ export default function LoginScreen() {
         return () => { alive = false; };
     }, [router]);
 
-    const handleGoogleLogin = () => {
-        // Chưa có Google ID Token / OAuth callback: không cho vào app giả đăng nhập.
-        setGoogleMessage('Google OAuth chưa được cấu hình. Hãy dùng Email để kiểm thử.');
+    useEffect(() => {
+        let active = true;
+        const handleCallback = async (url: string) => {
+            // Only callbacks containing code or OAuth error should be handled.
+            if (!/[?&#](?:code|error|error_description)=/.test(url) || oauthHandled.current===url) return;
+            oauthHandled.current=url;
+            try {
+                setPending(true);
+                const result = await finishGoogleOAuth(url);
+                if (result?.userId && active) {
+                    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+                        window.history.replaceState(null, '', '/login');
+                    }
+                    router.replace('/(tabs)');
+                }
+            } catch (error) {
+                if (active) setGoogleMessage(error instanceof Error ? error.message : String(error));
+            } finally { if (active) setPending(false); }
+        };
+        const listener = Linking.addEventListener('url', event => { void handleCallback(event.url); });
+        if (Platform.OS === 'web' && typeof window !== 'undefined') {
+            void handleCallback(window.location.href);
+        } else {
+            void Linking.getInitialURL().then(url => { if (url) void handleCallback(url); });
+        }
+        return () => { active = false; listener.remove(); };
+    }, [router]);
+
+    const handleGoogleLogin = async () => {
+        if (pending) return;
+        setGoogleMessage('');
+        setPending(true);
+        try { await beginGoogleOAuth(); }
+        catch (error) { setGoogleMessage(error instanceof Error ? error.message : String(error)); }
+        finally { setPending(false); }
     };
 
     const handleEmailLogin = () => {

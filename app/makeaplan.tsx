@@ -75,12 +75,7 @@ const MOCK_TEAMS = [
     { id: 't2', name: 'Alpha Team' },
 ];
 
-const MOCK_FRIENDS: UserCardData[] = [
-    { id: 'u1', name: 'Lê Dương', username: 'leduong232' },
-    { id: 'u2', name: 'Nguyễn Huy Hoàng', username: 'huyhoangnguyen' },
-    { id: 'u3', name: 'Võ Đặng Hồng Uyên', username: 'cuddlebug242404' },
-    { id: 'u4', name: 'Trần Văn Nam', username: 'namtv2026' },
-];
+const MOCK_FRIENDS: UserCardData[] = []; // No fake user IDs may be selected for real invitations.
 
 const INITIAL_ITEM_CATEGORIES: ItemCategory[] = [
     {
@@ -204,7 +199,7 @@ export default function MakeAPlanScreen() {
             if (options.categories.length) setItemCategories(options.categories);
             if (options.warnings.length) setSaveError(options.warnings.join(' | '));
             if (items.length === 0) {
-                setSaveError('Chưa có Route đã lưu trên Supabase. Không thể tạo Plan cho đến khi có Route thật. Màn hình Make a Route hiện chưa hỗ trợ lưu Route.');
+                setSaveError('Chưa có Route đã lưu trên Supabase. Không thể tạo Plan cho đến khi có Route thật. Hãy tạo Route từ Make a Route và kiểm tra hợp đồng ghi của Supabase.');
             }
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
@@ -753,7 +748,7 @@ export default function MakeAPlanScreen() {
                                 handleAddItemToCategory(activeCategoryForSearch.name, cleanQuery);
                             }}
                         >
-                            <Octicons name="plus" size={16} color="#3B82F6" />
+                            <Octicons name="plus" size={16} color="#63c7ff" />
                             <Text style={styles.addNewItemText}>ADD "{cleanQuery}"</Text>
                         </TouchableOpacity>
                     );
@@ -798,7 +793,6 @@ const styles = StyleSheet.create({
     flex1: { flex: 1 },
     container: { flex: 1, backgroundColor: '#F8FAFC' },
 
-    /* Header Bar đồng bộ với PostScreen */
     headerBar: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -913,25 +907,33 @@ const styles = StyleSheet.create({
         paddingHorizontal: 16,
         paddingVertical: 8,
         borderRadius: 20,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     moreBtnText: {
         fontFamily: 'GoogleSans-Bold',
         fontSize: 13,
         color: '#475569',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     modalPill: {
         backgroundColor: '#FFFFFF',
         paddingHorizontal: 16,
         paddingVertical: 8,
         borderRadius: 20,
+        justifyContent: 'center',        // Căn giữa theo chiều dọc
+        alignItems: 'center',            // Căn giữa theo chiều ngang
     },
     modalPillSelected: {
-        backgroundColor: '#3B82F6',
+        backgroundColor: '#207BFB',
     },
     modalPillText: {
         fontFamily: 'GoogleSans-Bold',
         fontSize: 13,
         color: '#64748B',
+        includeFontPadding: false,       // Bỏ padding mặc định của font Android
+        textAlignVertical: 'center',     // Căn giữa dòng chữ
     },
     modalPillTextSelected: {
         color: '#FFFFFF',
@@ -941,9 +943,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
         gap: 8,
-        backgroundColor: 'transparent',
-        borderWidth: 1.5,
-        borderColor: '#3B82F6',
+        backgroundColor: '#ffffff',
         borderRadius: 20,
         paddingVertical: 10,
         paddingHorizontal: 16,
@@ -953,7 +953,7 @@ const styles = StyleSheet.create({
     addNewItemText: {
         fontFamily: 'GoogleSans-Bold',
         fontSize: 13,
-        color: '#3B82F6',
+        color: '#63c7ff',
         includeFontPadding: false,
         textAlignVertical: 'center',
     },

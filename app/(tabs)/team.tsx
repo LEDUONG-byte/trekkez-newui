@@ -226,6 +226,7 @@ export default function TeamScreen() {
                                 isOwnedByYou={team.isOwnedByYou}
                                 headerColor={team.color}
                                 defaultExpanded={false}
+                                onHeaderPress={(id)=>router.push({ pathname:'/team-manage', params:{teamId:id}})}
                             >
                                 <View style={styles.cardContentWrapper}>
                                     <Text style={styles.cardDetailText}>

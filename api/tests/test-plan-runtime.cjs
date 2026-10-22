@@ -43,6 +43,7 @@ async function main(){
     '../services/route/route-read':{getRemoteRouteSummaries:async()=>[{id:'r1'}]},
     '../services/plan/plan-item-catalog':{getPlanItemCategories:async()=>[]},
     '../services/community/social-supabase':{getUserFollowConnections:async()=>[]},
+    '../services/core/supabase-client':{getAllSupabaseRows:async()=>[]},
     './newui-mappers':{routeToCard:r=>r,planToCard:p=>p,teamToCard:t=>t,postToHomeCard:p=>p,teamToHomeCard:t=>t}
   };
   const gw=compile('api/integration/newui-gateway.ts',mockDeps);

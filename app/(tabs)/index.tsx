@@ -5,6 +5,8 @@ import {
     View,
     Text,
     TouchableOpacity,
+    Share,
+    Platform,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Octicons } from '@expo/vector-icons';
@@ -210,7 +212,7 @@ export default function HomeScreen() {
                     <TeamPostCard
                         {...item}
                         onFollowPress={() => setFeedError('Team follow is not connected.')}
-                        onPressTeamCard={() => console.log('Team card pressed:', item.id)}
+                        onPressTeamCard={() => router.push('/(tabs)/team')}
                     />
                 </View>
             );
@@ -224,8 +226,8 @@ export default function HomeScreen() {
                         onLikePress={() => { void handlePostAction(item, 'like'); }}
                         onBookmarkPress={() => { void handlePostAction(item, 'save'); }}
                         onFollowPress={() => { void handleToggleFollow(item); }}
-                    onCommentPress={() => console.log('Comment pressed:', item.id)}
-                    onSharePress={() => console.log('Share pressed:', item.id)}
+                    onCommentPress={() => router.push({ pathname: '/comments', params: { postId: item.id } })}
+                    onSharePress={() => { const message = `TrekkEZ: ${item.caption || ''}`; if (Platform.OS === 'web' && typeof navigator !== 'undefined') { void (navigator.share ? navigator.share({text:message}) : navigator.clipboard.writeText(message)).catch(error=>setFeedError(String(error))); } else { void Share.share({message}).catch(error=>setFeedError(String(error))); } }}
                 />
             </View>
         );
@@ -249,7 +251,7 @@ export default function HomeScreen() {
 
             <View style={[styles.fabContainer, { bottom: bottomMargin + 70 }]}>
                 <TouchableOpacity style={styles.fabBtn} activeOpacity={0.85}
-                    onPress={() => setFeedError('Create post chưa có form nhập nội dung trong New UI.')}>
+                    onPress={() => router.push('/create-post')}>
                     <Octicons name="plus" size={24} color="#FFFFFF" />
                 </TouchableOpacity>
             </View>
