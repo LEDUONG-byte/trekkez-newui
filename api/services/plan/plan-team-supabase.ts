@@ -1,5 +1,5 @@
 import { getAuthSession } from "../auth/auth-session";
-import { supabaseRequest } from "../core/supabase-client";
+import { getAllSupabaseRows, supabaseRequest } from "../core/supabase-client";
 import {
   formatPlanDateTime,
   parsePlanDateTime,
@@ -269,6 +269,28 @@ export async function createTeamForPlan(options: {
     mode: "team",
     teamId: options.teamId,
   };
+}
+
+/** Lists only plans visible to the authenticated user under server-side RLS. */
+export async function getRemotePlans(expectedUserId?: string): Promise<TripPlan[]> {
+  const auth = await requirePlanAuth(expectedUserId);
+  const rows = await getAllSupabaseRows<RemotePlanRow>(
+    "/rest/v1/team_plans?select=*&order=created_at.desc",
+    { accessToken: auth.accessToken, expectedUserId: auth.userId },
+  );
+  if (rows.length === 0) return [];
+  const statusRows = await getAllSupabaseRows<RemoteStatusRow>(
+    `/rest/v1/team_plan_item_status?user_id=eq.${encodeURIComponent(auth.userId)}` +
+      `&select=plan_id,item_id,user_id,checked,updated_at`,
+    { accessToken: auth.accessToken, expectedUserId: auth.userId },
+  );
+  const byPlan = new Map<string, RemoteStatusRow[]>();
+  for (const status of statusRows) {
+    const list = byPlan.get(status.plan_id) ?? [];
+    list.push(status);
+    byPlan.set(status.plan_id, list);
+  }
+  return rows.map((row) => buildTripPlan(row, byPlan.get(row.id) ?? []));
 }
 
 export async function getLatestTeamPlan(

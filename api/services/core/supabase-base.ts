@@ -1,13 +1,16 @@
-export const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
-export const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 
-if (!SUPABASE_URL) {
+if (!supabaseUrl) {
   throw new Error("Missing EXPO_PUBLIC_SUPABASE_URL");
 }
 
-if (!SUPABASE_ANON_KEY) {
+if (!supabaseAnonKey) {
   throw new Error("Missing EXPO_PUBLIC_SUPABASE_ANON_KEY");
 }
+
+export const SUPABASE_URL: string = supabaseUrl;
+export const SUPABASE_ANON_KEY: string = supabaseAnonKey;
 
 export type SupabaseRawRequestOptions = {
   method?: string;

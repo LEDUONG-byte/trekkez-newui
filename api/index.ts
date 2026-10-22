@@ -12,3 +12,6 @@ export * as community from './services/community/community-supabase';
 export * as posts from './services/community/community-post-actions';
 export * as social from './services/community/social-supabase';
 export * as activityProfile from './services/activity/activity-profile';
+export * as routes from './services/route/route-read';
+export * as newUi from './integration/newui-gateway';
+export * from './integration/newui-mappers';
