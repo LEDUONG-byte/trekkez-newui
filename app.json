@@ -27,10 +27,7 @@
     "plugins": [
       "expo-router",
       [
-        "@rnmapbox/maps",
-        {
-          "RNMapboxMapsDownloadToken": "$RNMAPBOX_MAPS_DOWNLOAD_TOKEN"
-        }
+        "@rnmapbox/maps"
       ],
       [
         "expo-location",
