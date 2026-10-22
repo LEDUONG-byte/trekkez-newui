@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
     StyleSheet,
     View,
@@ -13,16 +13,13 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Octicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import Mapbox from '@rnmapbox/maps';
+import * as Location from 'expo-location';
 
-// Khởi tạo Mapbox an toàn để không crash trên nền tảng Web
-let Mapbox: any = null;
+// Cấu hình Mapbox Token
 const MAPBOX_KEY = process.env.EXPO_PUBLIC_MAPBOX_KEY;
-
-if (Platform.OS !== 'web') {
-    Mapbox = require('@rnmapbox/maps').default;
-    if (MAPBOX_KEY) {
-        Mapbox.setAccessToken(MAPBOX_KEY);
-    }
+if (MAPBOX_KEY) {
+    Mapbox.setAccessToken(MAPBOX_KEY);
 }
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -37,18 +34,71 @@ interface WaypointPoint {
 
 export default function MakeARouteScreen() {
     const router = useRouter();
+    const cameraRef = useRef<any>(null);
 
+    // -----------------------------------------------------------------
+    // STATES MANAGEMENT
+    // -----------------------------------------------------------------
     const [screenState, setScreenState] = useState<ScreenState>('INITIAL');
     const [startLocation, setStartLocation] = useState('Current location');
     const [destination, setDestination] = useState('');
     const [waypointMode, setWaypointMode] = useState<'along' | 'end'>('along');
     const [isOffGrid, setIsOffGrid] = useState(false);
 
+    // Modals
     const [isSaveMenuOpen, setIsSaveMenuOpen] = useState(false);
     const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
 
     const [selectedPin, setSelectedPin] = useState<{ latitude: number; longitude: number } | null>(null);
+    const [userCoords, setUserCoords] = useState<[number, number]>([106.6882, 10.8225]); // Mặc định TP.HCM
 
+    // Xin quyền và lấy vị trí thực tế khi mở màn hình
+    useEffect(() => {
+        (async () => {
+            let { status } = await Location.requestForegroundPermissionsAsync();
+            if (status !== 'granted') {
+                console.log('Quyền truy cập vị trí bị từ chối');
+                return;
+            }
+
+            try {
+                let location = await Location.getCurrentPositionAsync({});
+                const coords: [number, number] = [location.coords.longitude, location.coords.latitude];
+                setUserCoords(coords);
+
+                // Di chuyển camera về vị trí thực tế của người dùng
+                if (cameraRef.current) {
+                    cameraRef.current.setCamera({
+                        centerCoordinate: coords,
+                        zoomLevel: 15,
+                        animationDuration: 1000,
+                    });
+                }
+            } catch (error) {
+                console.log('Không lấy được vị trí GPS:', error);
+            }
+        })();
+    }, []);
+
+    // Hàm căn lại camera về vị trí người dùng khi bấm nút định vị bên phải
+    const handleCenterOnUser = async () => {
+        try {
+            let location = await Location.getCurrentPositionAsync({});
+            const coords: [number, number] = [location.coords.longitude, location.coords.latitude];
+            setUserCoords(coords);
+            if (cameraRef.current) {
+                cameraRef.current.setCamera({
+                    centerCoordinate: coords,
+                    zoomLevel: 15,
+                    animationDuration: 800,
+                });
+            }
+        } catch (error) {
+            console.log('Lỗi định vị:', error);
+        }
+    };
+
+    // Tọa độ tuyến đường mẫu (A -> 1 -> 2 -> 3 -> B)
     const routeCoordinates: WaypointPoint[] = [
         { latitude: 10.8250, longitude: 106.6860, label: 'A' },
         { latitude: 10.8238, longitude: 106.6870, label: '1' },
@@ -63,20 +113,17 @@ export default function MakeARouteScreen() {
             return;
         }
 
-        // Mapbox trả về GeoJSON Feature khi nhấn vào bản đồ
         const coords = e?.geometry?.coordinates;
         if (coords) {
-            // Cấu trúc mảng của Mapbox luôn là: [longitude, latitude]
             setSelectedPin({ longitude: coords[0], latitude: coords[1] });
         } else {
-            // Tọa độ dự phòng nếu lỗi
             setSelectedPin({ latitude: 10.8218, longitude: 106.6885 });
         }
         setScreenState('PIN_SELECTED');
     };
 
     const handleSetStartPoint = () => {
-        setStartLocation('565 Lê Quang Định, Hạnh Thông');
+        setStartLocation('Vị trí hiện tại của bạn');
         setSelectedPin(null);
         if (destination) {
             setScreenState('ROUTE_ACTIVE');
@@ -86,7 +133,7 @@ export default function MakeARouteScreen() {
     };
 
     const handleSetDestination = () => {
-        setDestination('Phạm Văn Đồng, Gò Vấp');
+        setDestination('Điểm đến đã chọn');
         setSelectedPin(null);
         setScreenState('ROUTE_ACTIVE');
     };
@@ -101,87 +148,84 @@ export default function MakeARouteScreen() {
 
     return (
         <View style={styles.container}>
-            {Platform.OS !== 'web' && Mapbox ? (
-                <Mapbox.MapView
-                    style={StyleSheet.absoluteFill}
-                    styleURL={Mapbox.StyleURL.Outdoors} // Lớp bản đồ Mapbox Outdoors
-                    onPress={handleMapPress}
-                    logoEnabled={false}
-                    attributionEnabled={false}
-                    compassEnabled={false}
-                >
-                    <Mapbox.Camera
-                        zoomLevel={14}
-                        centerCoordinate={[106.6882, 10.8225]} // [longitude, latitude]
-                    />
+            {/* ================= MAPBOX VIEW ================= */}
+            <Mapbox.MapView
+                style={StyleSheet.absoluteFill}
+                styleURL={Mapbox.StyleURL.Outdoors}
+                onPress={handleMapPress}
+                logoEnabled={false}
+                attributionEnabled={false}
+                compassEnabled={false}
+            >
+                <Mapbox.Camera
+                    ref={cameraRef}
+                    zoomLevel={14}
+                    centerCoordinate={userCoords}
+                />
 
-                    <Mapbox.UserLocation visible={true} />
+                <Mapbox.UserLocation visible={true} compassEnabled={true} />
 
-                    {/* Hiển thị ghim khi chọn */}
-                    {selectedPin && (
-                        <Mapbox.PointAnnotation
-                            id="selected-pin"
-                            coordinate={[selectedPin.longitude, selectedPin.latitude]}
-                        >
-                            <View style={styles.redPinMarker}>
-                                <Octicons name="location" size={28} color="#EF4444" />
-                            </View>
-                        </Mapbox.PointAnnotation>
-                    )}
+                {/* Ghim vị trí được chạm chọn trên bản đồ */}
+                {selectedPin && (
+                    <Mapbox.PointAnnotation
+                        id="selected-pin"
+                        coordinate={[selectedPin.longitude, selectedPin.latitude]}
+                    >
+                        <View style={styles.redPinMarker}>
+                            <Octicons name="location" size={28} color="#EF4444" />
+                        </View>
+                    </Mapbox.PointAnnotation>
+                )}
 
-                    {/* Hiển thị đường đi và các điểm Waypoints */}
-                    {screenState === 'ROUTE_ACTIVE' && (
-                        <>
-                            <Mapbox.ShapeSource
-                                id="routeSource"
-                                shape={{
+                {/* Đường đi & Waypoints khi kích hoạt Route */}
+                {screenState === 'ROUTE_ACTIVE' && (
+                    <>
+                        <Mapbox.ShapeSource
+                            id="routeSource"
+                            shape={{
+                                type: 'Feature',
+                                geometry: {
                                     type: 'LineString',
                                     coordinates: routeCoordinates.map(pt => [pt.longitude, pt.latitude]),
+                                },
+                                properties: {},
+                            }}
+                        >
+                            <Mapbox.LineLayer
+                                id="routeLine"
+                                style={{
+                                    lineColor: '#2563EB',
+                                    lineWidth: 5,
+                                    lineCap: 'round',
+                                    lineJoin: 'round',
                                 }}
+                            />
+                        </Mapbox.ShapeSource>
+
+                        {routeCoordinates.map((pt, index) => (
+                            <Mapbox.PointAnnotation
+                                key={`waypoint-${index}`}
+                                id={`waypoint-${index}`}
+                                coordinate={[pt.longitude, pt.latitude]}
                             >
-                                <Mapbox.LineLayer
-                                    id="routeLine"
-                                    style={{
-                                        lineColor: '#2563EB',
-                                        lineWidth: 5,
-                                        lineCap: 'round',
-                                        lineJoin: 'round',
-                                    }}
-                                />
-                            </Mapbox.ShapeSource>
-
-                            {routeCoordinates.map((pt, index) => (
-                                <Mapbox.PointAnnotation
-                                    key={`waypoint-${index}`}
-                                    id={`waypoint-${index}`}
-                                    coordinate={[pt.longitude, pt.latitude]}
+                                <View
+                                    style={[
+                                        styles.waypointBadge,
+                                        pt.label === 'A' && { backgroundColor: '#48752C' },
+                                        pt.label === 'B' && { backgroundColor: '#C85213' },
+                                    ]}
                                 >
-                                    <View
-                                        style={[
-                                            styles.waypointBadge,
-                                            pt.label === 'A' && { backgroundColor: '#48752C' },
-                                            pt.label === 'B' && { backgroundColor: '#C85213' },
-                                        ]}
-                                    >
-                                        <Text style={styles.waypointBadgeText}>{pt.label}</Text>
-                                    </View>
-                                </Mapbox.PointAnnotation>
-                            ))}
-                        </>
-                    )}
-                </Mapbox.MapView>
-            ) : (
-                <TouchableOpacity
-                    activeOpacity={1}
-                    style={[StyleSheet.absoluteFill, styles.webMapFallback]}
-                    onPress={handleMapPress}
-                >
-                    <Octicons name="location" size={48} color="#94A3B8" />
-                    <Text style={styles.webMapText}>Mapbox Key connected. Tap anywhere to simulate pin selection.</Text>
-                </TouchableOpacity>
-            )}
+                                    <Text style={styles.waypointBadgeText}>{pt.label}</Text>
+                                </View>
+                            </Mapbox.PointAnnotation>
+                        ))}
+                    </>
+                )}
+            </Mapbox.MapView>
 
+            {/* ================= OVERLAY UI ================= */}
             <SafeAreaView style={styles.overlayContainer} pointerEvents="box-none">
+                {/* 1. TOP FLOATING BUTTONS */}
                 <View style={styles.topRow}>
                     <View style={styles.topLeftGroup}>
                         <TouchableOpacity style={styles.circleBtn} activeOpacity={0.8}>
@@ -215,13 +259,19 @@ export default function MakeARouteScreen() {
                     </View>
                 </View>
 
+                {/* 2. RIGHT FLOATING BUTTONS */}
                 <View style={styles.rightFloatCol}>
                     <TouchableOpacity style={styles.circleBtn} activeOpacity={0.8}>
                         <Octicons name="search" size={20} color="#0F172A" />
                     </TouchableOpacity>
 
-                    <TouchableOpacity style={styles.circleBtn} activeOpacity={0.8}>
-                        <Octicons name="location" size={20} color="#0F172A" />
+                    {/* Nút định vị vị trí thực tế của người dùng */}
+                    <TouchableOpacity
+                        style={styles.circleBtn}
+                        activeOpacity={0.8}
+                        onPress={handleCenterOnUser}
+                    >
+                        <Octicons name="location" size={20} color="#0284C7" />
                     </TouchableOpacity>
 
                     <TouchableOpacity style={styles.circleBtn} activeOpacity={0.8}>
@@ -229,6 +279,7 @@ export default function MakeARouteScreen() {
                     </TouchableOpacity>
                 </View>
 
+                {/* 3. BOTTOM-LEFT MENU BUTTON (...) */}
                 <View style={styles.bottomLeftFloat}>
                     <TouchableOpacity
                         style={styles.circleBtn}
@@ -239,6 +290,7 @@ export default function MakeARouteScreen() {
                     </TouchableOpacity>
                 </View>
 
+                {/* 4. BOTTOM SHEET PANEL */}
                 <View style={styles.bottomSheetContainer}>
                     <View style={styles.handleBar} />
 
@@ -332,7 +384,7 @@ export default function MakeARouteScreen() {
                                     <Text style={styles.waypointTitle}>Waypoint</Text>
                                     <Text style={styles.waypointDistance}>427 m from you</Text>
                                     <Text style={styles.waypointAddress} numberOfLines={1}>
-                                        📍 565 Lê Quang Định, Hạnh Thông, Hồ Chí Minh
+                                        📍 Vị trí điểm dừng trung gian
                                     </Text>
                                 </View>
                                 <TouchableOpacity
@@ -480,17 +532,6 @@ const styles = StyleSheet.create({
     overlayContainer: {
         flex: 1,
         justifyContent: 'space-between',
-    },
-    webMapFallback: {
-        backgroundColor: '#E2E8F0',
-        justifyContent: 'center',
-        alignItems: 'center',
-        gap: 12,
-    },
-    webMapText: {
-        fontFamily: 'GoogleSans-Medium',
-        fontSize: 14,
-        color: '#64748B',
     },
     topRow: {
         flexDirection: 'row',
@@ -698,3 +739,167 @@ const styles = StyleSheet.create({
     waypointTitle: {
         fontFamily: 'GoogleSans-Bold',
         fontSize: 20,
+        color: '#0F172A',
+    },
+    waypointDistance: {
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 14,
+        color: '#64748B',
+        marginTop: 2,
+    },
+    waypointAddress: {
+        fontFamily: 'GoogleSans-Regular',
+        fontSize: 13,
+        color: '#94A3B8',
+        marginTop: 4,
+        maxWidth: 280,
+    },
+    radioOptionsRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginVertical: 8,
+    },
+    radioItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    radioCircle: {
+        width: 20,
+        height: 20,
+        borderRadius: 10,
+        borderWidth: 2,
+        borderColor: '#94A3B8',
+    },
+    radioCircleSelected: {
+        borderColor: '#4D6B18',
+        borderWidth: 6,
+    },
+    radioLabel: {
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 14,
+        color: '#0F172A',
+    },
+    waypointFooterRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginTop: 8,
+    },
+    offGridToggle: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+    },
+    toggleTrack: {
+        width: 44,
+        height: 24,
+        borderRadius: 12,
+        backgroundColor: '#CBD5E1',
+        padding: 2,
+    },
+    toggleTrackActive: {
+        backgroundColor: '#4D6B18',
+    },
+    toggleThumb: {
+        width: 20,
+        height: 20,
+        borderRadius: 10,
+        backgroundColor: '#FFFFFF',
+    },
+    toggleThumbActive: {
+        transform: [{ translateX: 20 }],
+    },
+    toggleLabel: {
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 14,
+        color: '#0F172A',
+    },
+    addRouteConfirmBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#4D6B18',
+        paddingHorizontal: 20,
+        paddingVertical: 12,
+        borderRadius: 24,
+        gap: 8,
+    },
+    addRouteConfirmText: {
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 15,
+        color: '#FFFFFF',
+    },
+    statsContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-around',
+        paddingVertical: 8,
+    },
+    statCol: {
+        alignItems: 'center',
+    },
+    statValue: {
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 22,
+        color: '#0F172A',
+    },
+    statUnit: {
+        fontSize: 14,
+        fontFamily: 'GoogleSans-Regular',
+        color: '#64748B',
+    },
+    statLabel: {
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 12,
+        color: '#64748B',
+        marginTop: 4,
+    },
+    modalOverlayTopRight: {
+        flex: 1,
+        backgroundColor: 'rgba(15, 23, 42, 0.2)',
+        alignItems: 'flex-end',
+        paddingTop: 80,
+        paddingRight: 16,
+    },
+    modalOverlayBottomLeft: {
+        flex: 1,
+        backgroundColor: 'rgba(15, 23, 42, 0.2)',
+        justifyContent: 'flex-end',
+        alignItems: 'flex-start',
+        paddingBottom: 240,
+        paddingLeft: 16,
+    },
+    popoverMenu: {
+        width: 220,
+        backgroundColor: '#FFFFFF',
+        borderRadius: 20,
+        paddingVertical: 8,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.15,
+        shadowRadius: 12,
+        elevation: 8,
+    },
+    popoverOptionBtn: {
+        paddingHorizontal: 20,
+        paddingVertical: 14,
+    },
+    popoverOptionRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        paddingHorizontal: 20,
+        paddingVertical: 14,
+    },
+    popoverOptionTextBold: {
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 15,
+        color: '#0F172A',
+    },
+    popoverOptionText: {
+        fontFamily: 'GoogleSans-Medium',
+        fontSize: 15,
+        color: '#334155',
+    },
+});
