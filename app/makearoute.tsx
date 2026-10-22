@@ -4,11 +4,13 @@ import {
     View,
     Text,
     TouchableOpacity,
+    TouchableOpacityProps,
     TextInput,
     Platform,
     Modal,
     TouchableWithoutFeedback,
     ActivityIndicator,
+    KeyboardAvoidingView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Octicons } from '@expo/vector-icons';
@@ -19,6 +21,26 @@ import * as Location from 'expo-location';
 const MAPBOX_KEY = process.env.EXPO_PUBLIC_MAPBOX_KEY;
 if (MAPBOX_KEY) {
     Mapbox.setAccessToken(MAPBOX_KEY);
+}
+
+// =====================================================================
+// COMPONENT: PrimaryButton
+// =====================================================================
+interface PrimaryButtonProps extends TouchableOpacityProps {
+    title: string;
+}
+
+function PrimaryButton({ title, style, disabled, ...props }: PrimaryButtonProps) {
+    return (
+        <TouchableOpacity
+            style={[styles.continueBtn, disabled && styles.continueBtnDisabled, style]}
+            activeOpacity={0.8}
+            disabled={disabled}
+            {...props}
+        >
+            <Text style={styles.continueText}>{title}</Text>
+        </TouchableOpacity>
+    );
 }
 
 type ScreenState = 'INITIAL' | 'PIN_SELECTED' | 'WAYPOINT_PANEL' | 'ROUTE_ACTIVE';
@@ -41,7 +63,9 @@ export default function MakeARouteScreen() {
     const [isOffGrid, setIsOffGrid] = useState(false);
     const [isCalculatingRoute, setIsCalculatingRoute] = useState(false);
 
-    const [isSaveMenuOpen, setIsSaveMenuOpen] = useState(false);
+    // Save & More Modal States
+    const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
+    const [routeNameInput, setRouteNameInput] = useState('My new route');
     const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
 
     const [userCoords, setUserCoords] = useState<[number, number] | null>(null);
@@ -308,6 +332,11 @@ export default function MakeARouteScreen() {
         }
     };
 
+    const handleConfirmSaveRoute = () => {
+        setIsSaveModalOpen(false);
+        router.back();
+    };
+
     return (
         <View style={styles.container}>
             <Mapbox.MapView
@@ -395,7 +424,7 @@ export default function MakeARouteScreen() {
 
             {/* OVERLAY UI */}
             <View style={styles.overlayContainer} pointerEvents="box-none">
-                {/* 1. TOP HEADER: Back button bên trái, Search & Save bên phải */}
+                {/* 1. TOP HEADER */}
                 <View
                     style={[
                         styles.topRow,
@@ -412,7 +441,7 @@ export default function MakeARouteScreen() {
                             <Octicons name="chevron-left" size={24} color="#0F172A" />
                         </TouchableOpacity>
 
-                        {/* THANH TỶ LỆ CHỮ L: KHÔNG NỀN, KHÔNG ĐỔ BÓNG */}
+                        {/* THANH TỶ LỆ CHỮ L */}
                         <View style={styles.scaleLContainer} pointerEvents="none">
                             <Text style={[styles.scaleLText, { width: scaleBarData.width }]}>
                                 {scaleBarData.text}
@@ -430,9 +459,7 @@ export default function MakeARouteScreen() {
                         <TouchableOpacity
                             style={styles.circleBtn}
                             activeOpacity={0.8}
-                            onPress={() => {
-                                // Logic mở modal / trang tìm kiếm địa điểm
-                            }}
+                            onPress={() => {}}
                         >
                             <Octicons name="search" size={20} color="#0F172A" />
                         </TouchableOpacity>
@@ -441,16 +468,15 @@ export default function MakeARouteScreen() {
                             <TouchableOpacity
                                 style={styles.saveRouteBtn}
                                 activeOpacity={0.85}
-                                onPress={() => setIsSaveMenuOpen(true)}
+                                onPress={() => setIsSaveModalOpen(true)}
                             >
                                 <Text style={styles.saveRouteBtnText}>Save</Text>
-                                <Octicons name="chevron-down" size={16} color="#FFFFFF" />
                             </TouchableOpacity>
                         )}
                     </View>
                 </View>
 
-                {/* 2. BOTTOM SECTION: Nút ba chấm bên trái, nút GPS bên phải */}
+                {/* 2. BOTTOM SECTION */}
                 <View
                     style={[
                         styles.bottomSection,
@@ -476,7 +502,7 @@ export default function MakeARouteScreen() {
                         </TouchableOpacity>
                     </View>
 
-                    {/* Card nổi màu nền #f5f4f7: Chặn sự kiện touch lọt xuống map */}
+                    {/* Card nổi */}
                     <View
                         style={styles.floatingCardContainer}
                         pointerEvents="auto"
@@ -677,34 +703,75 @@ export default function MakeARouteScreen() {
                 </View>
             </View>
 
-            <Modal visible={isSaveMenuOpen} transparent animationType="fade" onRequestClose={() => setIsSaveMenuOpen(false)}>
-                <TouchableWithoutFeedback onPress={() => setIsSaveMenuOpen(false)}>
-                    <View style={styles.modalOverlayTopRight}>
-                        <View style={styles.popoverMenu}>
+            {/* ================= MODAL TRƯỢT LÊN LƯU LỘ TRÌNH ================= */}
+            <Modal
+                visible={isSaveModalOpen}
+                transparent
+                animationType="slide"
+                onRequestClose={() => setIsSaveModalOpen(false)}
+            >
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                    style={styles.saveModalBackdrop}
+                >
+                    <TouchableWithoutFeedback onPress={() => setIsSaveModalOpen(false)}>
+                        <View style={styles.saveModalDismissOverlay} />
+                    </TouchableWithoutFeedback>
+
+                    <View style={[styles.saveModalSheet, { paddingBottom: Math.max(insets.bottom, 20) }]}>
+                        <View style={styles.saveModalHeader}>
+                            <Text style={styles.saveModalTitle}>Save your route</Text>
+                            {/* Dấu X không bọc tròn */}
                             <TouchableOpacity
-                                style={styles.popoverOptionBtn}
-                                onPress={() => {
-                                    setIsSaveMenuOpen(false);
-                                    router.back();
-                                }}
+                                style={styles.saveModalCloseBtn}
+                                activeOpacity={0.7}
+                                onPress={() => setIsSaveModalOpen(false)}
                             >
-                                <Text style={styles.popoverOptionTextBold}>Save</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                style={styles.popoverOptionBtn}
-                                onPress={() => {
-                                    setIsSaveMenuOpen(false);
-                                    router.back();
-                                }}
-                            >
-                                <Text style={styles.popoverOptionText}>Navigate without saving</Text>
+                                <Octicons name="x" size={22} color="#0F172A" />
                             </TouchableOpacity>
                         </View>
+
+                        <Text style={styles.saveModalSubtitle}>
+                            Give your custom route a memorable name to easily access it later.
+                        </Text>
+
+                        <View style={styles.saveModalInputWrapper}>
+                            <TextInput
+                                style={styles.saveModalInput}
+                                value={routeNameInput}
+                                onChangeText={setRouteNameInput}
+                                placeholder="Enter route name"
+                                placeholderTextColor="#94A3B8"
+                                autoFocus
+                            />
+                            {routeNameInput.length > 0 && (
+                                <TouchableOpacity
+                                    style={styles.clearBtn}
+                                    onPress={() => setRouteNameInput('')}
+                                >
+                                    <Octicons name="x" size={16} color="#64748B" />
+                                </TouchableOpacity>
+                            )}
+                        </View>
+
+                        <View style={styles.saveModalButtonContainer}>
+                            <PrimaryButton
+                                title="Save"
+                                disabled={!routeNameInput.trim()}
+                                onPress={handleConfirmSaveRoute}
+                            />
+                        </View>
                     </View>
-                </TouchableWithoutFeedback>
+                </KeyboardAvoidingView>
             </Modal>
 
-            <Modal visible={isMoreMenuOpen} transparent animationType="fade" onRequestClose={() => setIsMoreMenuOpen(false)}>
+            {/* ================= MODAL MORE OPTIONS (...) ================= */}
+            <Modal
+                visible={isMoreMenuOpen}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setIsMoreMenuOpen(false)}
+            >
                 <TouchableWithoutFeedback onPress={() => setIsMoreMenuOpen(false)}>
                     <View style={styles.modalOverlayBottomLeft}>
                         <View style={styles.popoverMenu}>
@@ -779,14 +846,12 @@ const styles = StyleSheet.create({
         gap: 10,
     },
     saveRouteBtn: {
-        flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
         backgroundColor: '#207bfb',
-        paddingHorizontal: 18,
-        paddingVertical: 10,
+        paddingHorizontal: 22,
+        paddingVertical: 12,
         borderRadius: 24,
-        gap: 8,
     },
     saveRouteBtnText: {
         fontFamily: 'GoogleSans-Bold',
@@ -1150,14 +1215,92 @@ const styles = StyleSheet.create({
         textAlignVertical: 'center',
     },
 
-    // Modal
-    modalOverlayTopRight: {
+    // Save Modal Styles
+    saveModalBackdrop: {
         flex: 1,
-        backgroundColor: 'rgba(15, 23, 42, 0.2)',
-        alignItems: 'flex-end',
-        paddingTop: 80,
-        paddingRight: 16,
+        backgroundColor: 'rgba(15, 23, 42, 0.45)',
+        justifyContent: 'flex-end',
     },
+    saveModalDismissOverlay: {
+        flex: 1,
+    },
+    saveModalSheet: {
+        backgroundColor: '#FFFFFF',
+        borderTopLeftRadius: 28,
+        borderTopRightRadius: 28,
+        paddingHorizontal: 24,
+        paddingTop: 24,
+        gap: 16,
+    },
+    saveModalHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+    },
+    saveModalTitle: {
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 20,
+        color: '#0F172A',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
+    },
+    // Dấu X đóng modal không bọc tròn
+    saveModalCloseBtn: {
+        padding: 4,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    saveModalSubtitle: {
+        fontFamily: 'GoogleSans-Regular',
+        fontSize: 14,
+        color: '#64748B',
+        lineHeight: 20,
+        includeFontPadding: false,
+        textAlignVertical: 'center',
+    },
+    saveModalInputWrapper: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#F8FAFC',
+        borderRadius: 16,
+        paddingHorizontal: 16,
+        height: 54,
+    },
+    saveModalInput: {
+        flex: 1,
+        fontFamily: 'GoogleSans-Medium',
+        fontSize: 15,
+        color: '#0F172A',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
+        paddingVertical: 0,
+    },
+    saveModalButtonContainer: {
+        marginTop: 8,
+        width: '100%',
+    },
+
+    // Component PrimaryButton
+    continueBtn: {
+        backgroundColor: '#1E293B',
+        width: '100%',
+        paddingVertical: 16,
+        borderRadius: 10,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    continueBtnDisabled: {
+        opacity: 0.5,
+    },
+    continueText: {
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 16,
+        color: '#FFFFFF',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
+    },
+
+    // Modal ba chấm
     modalOverlayBottomLeft: {
         flex: 1,
         backgroundColor: 'rgba(15, 23, 42, 0.2)',
