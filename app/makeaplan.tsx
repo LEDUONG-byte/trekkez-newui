@@ -564,7 +564,6 @@ export default function MakeAPlanScreen() {
     return (
         <SafeAreaView style={styles.container}>
             <KeyboardAvoidingView style={styles.flex1} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-                {/* Header Bar đồng bộ với PostScreen */}
                 <View style={styles.headerBar}>
                     <TouchableOpacity
                         style={styles.backBtn}
@@ -597,7 +596,6 @@ export default function MakeAPlanScreen() {
                 </View>
             </KeyboardAvoidingView>
 
-            {/* SearchFloat cho Mời Thành Viên */}
             <SearchFloat<UserCardData>
                 visible={isSearchUserVisible}
                 data={MOCK_FRIENDS}
@@ -618,7 +616,6 @@ export default function MakeAPlanScreen() {
                 }}
             />
 
-            {/* SearchFloat cho Đồ Đạc/Trang Thiết Bị */}
             <SearchFloat<EquipmentItem>
                 visible={Boolean(activeCategoryForSearch)}
                 data={flatEquipmentList}
@@ -658,14 +655,13 @@ export default function MakeAPlanScreen() {
                                 handleAddItemToCategory(activeCategoryForSearch.name, cleanQuery);
                             }}
                         >
-                            <Octicons name="plus" size={16} color="#3B82F6" />
+                            <Octicons name="plus" size={16} color="#63c7ff" />
                             <Text style={styles.addNewItemText}>ADD "{cleanQuery}"</Text>
                         </TouchableOpacity>
                     );
                 }}
             />
 
-            {/* Modal Sắp Xếp Tuyến Đường */}
             <Modal visible={isMenuVisible} transparent animationType="fade" onRequestClose={() => setIsMenuVisible(false)}>
                 <TouchableWithoutFeedback onPress={() => setIsMenuVisible(false)}>
                     <View style={styles.modalOverlay}>
@@ -703,7 +699,6 @@ const styles = StyleSheet.create({
     flex1: { flex: 1 },
     container: { flex: 1, backgroundColor: '#F8FAFC' },
 
-    /* Header Bar đồng bộ với PostScreen */
     headerBar: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -818,25 +813,33 @@ const styles = StyleSheet.create({
         paddingHorizontal: 16,
         paddingVertical: 8,
         borderRadius: 20,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     moreBtnText: {
         fontFamily: 'GoogleSans-Bold',
         fontSize: 13,
         color: '#475569',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     modalPill: {
         backgroundColor: '#FFFFFF',
         paddingHorizontal: 16,
         paddingVertical: 8,
         borderRadius: 20,
+        justifyContent: 'center',        // Căn giữa theo chiều dọc
+        alignItems: 'center',            // Căn giữa theo chiều ngang
     },
     modalPillSelected: {
-        backgroundColor: '#3B82F6',
+        backgroundColor: '#207BFB',
     },
     modalPillText: {
         fontFamily: 'GoogleSans-Bold',
         fontSize: 13,
         color: '#64748B',
+        includeFontPadding: false,       // Bỏ padding mặc định của font Android
+        textAlignVertical: 'center',     // Căn giữa dòng chữ
     },
     modalPillTextSelected: {
         color: '#FFFFFF',
@@ -846,9 +849,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
         gap: 8,
-        backgroundColor: 'transparent',
-        borderWidth: 1.5,
-        borderColor: '#3B82F6',
+        backgroundColor: '#ffffff',
         borderRadius: 20,
         paddingVertical: 10,
         paddingHorizontal: 16,
@@ -858,7 +859,7 @@ const styles = StyleSheet.create({
     addNewItemText: {
         fontFamily: 'GoogleSans-Bold',
         fontSize: 13,
-        color: '#3B82F6',
+        color: '#63c7ff',
         includeFontPadding: false,
         textAlignVertical: 'center',
     },

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
     StyleSheet,
     View,
@@ -9,8 +9,12 @@ import {
     ScrollView,
     KeyboardAvoidingView,
     Platform,
+    Dimensions,
+    Animated,
 } from 'react-native';
 import { Octicons } from '@expo/vector-icons';
+
+const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 export interface SearchFloatProps<T> {
     visible: boolean;
@@ -19,15 +23,10 @@ export interface SearchFloatProps<T> {
     categoryKey?: keyof T;
     selectedCategory?: string;
     placeholder?: string;
-
-    // Layout dạng 'wrap' (cho pill/tag đồ đạc) hoặc 'list' (cho danh sách dạng hàng như User)
     contentLayout?: 'wrap' | 'list';
-
-    // Render Prop tùy chỉnh từng item
     renderItem: (item: T, index: number) => React.ReactNode;
     renderFooterAction?: (query: string, onClose: () => void) => React.ReactNode;
     renderEmpty?: (query: string) => React.ReactNode;
-
     onClose: () => void;
 }
 
@@ -45,6 +44,30 @@ export default function SearchFloat<T extends Record<string, any>>({
                                                                        onClose,
                                                                    }: SearchFloatProps<T>) {
     const [searchQuery, setSearchQuery] = useState('');
+
+    const fadeAnim = useRef(new Animated.Value(0)).current;
+    const slideAnim = useRef(new Animated.Value(-10)).current;
+
+    useEffect(() => {
+        if (visible) {
+            setSearchQuery('');
+            fadeAnim.setValue(0);
+            slideAnim.setValue(-10);
+
+            Animated.parallel([
+                Animated.timing(fadeAnim, {
+                    toValue: 1,
+                    duration: 200,
+                    useNativeDriver: true,
+                }),
+                Animated.timing(slideAnim, {
+                    toValue: 0,
+                    duration: 200,
+                    useNativeDriver: true,
+                }),
+            ]).start();
+        }
+    }, [visible, fadeAnim, slideAnim]);
 
     const filteredData = useMemo(() => {
         let result = data;
@@ -90,44 +113,56 @@ export default function SearchFloat<T extends Record<string, any>>({
                     >
                         <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
                             <View style={styles.floatingWrapper}>
-                                {/* Thanh Search nổi tỉ lệ chuẩn 52px */}
+                                {/* Thanh Search nổi */}
                                 <View style={styles.searchBarContainer}>
                                     <TextInput
                                         style={styles.searchInput}
                                         placeholder={placeholder}
-                                        placeholderTextColor="#64748B"
+                                        placeholderTextColor="#94A3B8"
                                         value={searchQuery}
                                         onChangeText={setSearchQuery}
                                         autoFocus
+                                        returnKeyType="search"
                                     />
                                     {searchQuery.length > 0 && (
                                         <TouchableOpacity
                                             onPress={() => setSearchQuery('')}
                                             style={styles.clearBtn}
-                                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                                         >
                                             <Octicons name="x-circle-fill" size={16} color="#94A3B8" />
                                         </TouchableOpacity>
                                     )}
                                 </View>
 
-                                {/* Nội dung kết quả vừa vặn ngay bên dưới */}
+                                {/* Danh sách kết quả & Action nổi */}
                                 {(filteredData.length > 0 || searchQuery.trim().length > 0) && (
-                                    <ScrollView
-                                        style={styles.resultsScrollView}
-                                        contentContainerStyle={[
-                                            styles.resultsContent,
-                                            contentLayout === 'wrap' ? styles.layoutWrap : styles.layoutList,
+                                    <Animated.View
+                                        style={[
+                                            styles.resultsContainer,
+                                            {
+                                                opacity: fadeAnim,
+                                                transform: [{ translateY: slideAnim }],
+                                            },
                                         ]}
-                                        keyboardShouldPersistTaps="handled"
-                                        showsVerticalScrollIndicator={false}
                                     >
-                                        {filteredData.map((item, index) => renderItem(item, index))}
+                                        <ScrollView
+                                            style={styles.resultsScrollView}
+                                            contentContainerStyle={[
+                                                styles.resultsContent,
+                                                contentLayout === 'wrap' ? styles.layoutWrap : styles.layoutList,
+                                            ]}
+                                            keyboardShouldPersistTaps="handled"
+                                            showsVerticalScrollIndicator={false}
+                                        >
+                                            {filteredData.map((item, index) => renderItem(item, index))}
 
-                                        {filteredData.length === 0 && renderEmpty && renderEmpty(searchQuery)}
+                                            {filteredData.length === 0 && renderEmpty && renderEmpty(searchQuery)}
+                                        </ScrollView>
 
+                                        {/* Nút thêm món mới đặt nổi bật bên dưới danh sách kết quả */}
                                         {renderFooterAction && renderFooterAction(searchQuery, handleClose)}
-                                    </ScrollView>
+                                    </Animated.View>
                                 )}
                             </View>
                         </TouchableWithoutFeedback>
@@ -145,7 +180,7 @@ const styles = StyleSheet.create({
         justifyContent: 'flex-start',
         alignItems: 'center',
         paddingTop: 80,
-        paddingHorizontal: 20,
+        paddingHorizontal: 24,
     },
     keyboardView: {
         width: '100%',
@@ -155,35 +190,43 @@ const styles = StyleSheet.create({
     },
     searchBarContainer: {
         width: '100%',
-        height: 60,
-        backgroundColor: '#E2E8F0',
-        borderRadius: 12,
-        paddingHorizontal: 14,
+        height: 52,
+        backgroundColor: '#FFFFFF',
+        borderRadius: 14,
+        paddingHorizontal: 16,
         justifyContent: 'center',
-        includeFontPadding: false,
     },
     searchInput: {
-        fontFamily: 'GoogleSans',
+        fontFamily: 'GoogleSans-Regular',
         fontSize: 15,
-        color: '#58595d',
+        color: '#0F172A',
         textAlign: 'center',
         padding: 0,
         includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     clearBtn: {
         position: 'absolute',
         right: 14,
+        height: '100%',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    resultsContainer: {
+        width: '100%',
+        marginTop: 10,
     },
     resultsScrollView: {
         width: '100%',
-        marginTop: 8,
+        maxHeight: SCREEN_HEIGHT * 0.45,
     },
     resultsContent: {
-        paddingVertical: 2,
+        paddingVertical: 4,
     },
     layoutWrap: {
         flexDirection: 'row',
         flexWrap: 'wrap',
+        alignItems: 'center',
         justifyContent: 'flex-start',
         gap: 8,
     },
