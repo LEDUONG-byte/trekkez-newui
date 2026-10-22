@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
     StyleSheet,
     View,
@@ -8,11 +8,18 @@ import {
     Modal,
     TouchableWithoutFeedback,
     ActivityIndicator,
+    TextInput,
+    Alert,
+    Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Octicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
+import { loadTeamCards } from '../../api/integration/newui-gateway';
 import ExpandableCard from '../../components/ExpandableCard';
+import SearchFloat from '../../components/SearchFloat';
+import { uploadTeam, getRemoteTeam } from '../../api/services/team/team-supabase';
+import { requestTeamJoin } from '../../api/services/team/team-join-request';
 
 // =====================================================================
 // TYPES & DATA MODELS
@@ -27,6 +34,8 @@ export interface TeamItem {
     membersCount: number;
     description?: string;
     createdAt: string; // Định dạng ISO: YYYY-MM-DD
+    isJoined?: boolean;
+    allowMatchmaking?: boolean;
 }
 
 // =====================================================================
@@ -39,7 +48,69 @@ export default function TeamScreen() {
     // STATES MANAGEMENT
     // -----------------------------------------------------------------
     const [teams, setTeams] = useState<TeamItem[]>(INITIAL_TEAMS);
-    const [isLoading, setIsLoading] = useState<boolean>(false);
+    const [isLoading, setIsLoading] = useState<boolean>(true);
+    const [loadError, setLoadError] = useState('');
+    const refreshTeams = useCallback(async () => {
+        setIsLoading(true);
+        setLoadError('');
+        try { setTeams(await loadTeamCards()); }
+        catch (error) { setTeams([]); setLoadError(error instanceof Error ? error.message : String(error)); }
+        finally { setIsLoading(false); }
+    }, []);
+    useFocusEffect(useCallback(() => { void refreshTeams(); }, [refreshTeams]));
+
+    const [isSearchVisible, setIsSearchVisible] = useState(false);
+    const [isCreateVisible, setIsCreateVisible] = useState(false);
+    const [teamName, setTeamName] = useState('');
+    const [teamDescription, setTeamDescription] = useState('');
+    const [formError, setFormError] = useState('');
+    const [submitting, setSubmitting] = useState(false);
+
+    const notify = (message: string) => {
+        if (Platform.OS === 'web') {
+            if (typeof window !== 'undefined') window.alert(message);
+        } else Alert.alert('TrekkEZ Team', message);
+    };
+
+    const createTeam = async () => {
+        const name = teamName.trim();
+        if (!name) { setFormError('Vui lòng nhập tên nhóm.'); return; }
+        if (submitting) return;
+        setFormError(''); setSubmitting(true);
+        try {
+            // UUIDv4, used only as a database entity identifier (not a credential).
+            const id = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+                const r = Math.floor(Math.random() * 16);
+                return (c === 'x' ? r : ((r & 0x3) | 0x8)).toString(16);
+            });
+            await uploadTeam({
+                id, name, description: teamDescription.trim(),
+                level: 'Tất cả cấp độ', location: '', routeName: '', tripDate: '',
+                meetingPoint: '', note: '', imageUrl: '',
+            });
+            const confirmed = await getRemoteTeam(id);
+            if (!confirmed) throw new Error('Đã gửi yêu cầu tạo nhóm nhưng chưa xác minh được nhóm đã lưu trên Supabase.');
+            await refreshTeams();
+            setTeamName(''); setTeamDescription(''); setIsCreateVisible(false);
+            notify('Đã tạo nhóm và xác minh trên Supabase.');
+        } catch (error) { setFormError(error instanceof Error ? error.message : String(error)); }
+        finally { setSubmitting(false); }
+    };
+
+    const findableTeams = useMemo(() => teams.filter(
+        team => !team.isOwnedByYou && !team.isJoined && team.allowMatchmaking !== false,
+    ), [teams]);
+    const requestJoin = async (team: TeamItem) => {
+        setIsSearchVisible(false);
+        try {
+            await requestTeamJoin(team.id);
+            notify(`Đã gửi yêu cầu tham gia nhóm ${team.name}. Chờ chủ nhóm duyệt.`);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            setLoadError(message);
+            notify(message);
+        }
+    };
 
     // Sort States
     const [sortBy, setSortBy] = useState<TeamSortOption>('name');
@@ -83,7 +154,8 @@ export default function TeamScreen() {
                 <View style={styles.headerBar}>
                     <Text style={styles.headerTitle}>TEAM</Text>
                     <View style={styles.headerRightBtns}>
-                        <TouchableOpacity style={styles.circleHeaderBtn} activeOpacity={0.7}>
+                        <TouchableOpacity style={styles.circleHeaderBtn} activeOpacity={0.7}
+                            onPress={() => setIsSearchVisible(true)}>
                             <Octicons name="search" size={18} color="#0F172A" />
                         </TouchableOpacity>
                     </View>
@@ -94,6 +166,7 @@ export default function TeamScreen() {
                     <TouchableOpacity
                         style={[styles.actionCard, styles.findTeamCard]}
                         activeOpacity={0.85}
+                        onPress={() => setIsSearchVisible(true)}
                     >
                         <Text style={styles.findTeamText}>Find a team</Text>
                         <View style={styles.cardIconBottomRight}>
@@ -104,6 +177,7 @@ export default function TeamScreen() {
                     <TouchableOpacity
                         style={[styles.actionCard, styles.createTeamCard]}
                         activeOpacity={0.85}
+                        onPress={() => { setFormError(''); setIsCreateVisible(true); }}
                     >
                         <Text style={styles.createTeamText}>Create a new team</Text>
                         <View style={styles.cardIconBottomRight}>
@@ -126,6 +200,7 @@ export default function TeamScreen() {
                     </TouchableOpacity>
                 </View>
 
+                {loadError ? <Text style={{ color: '#B91C1C', marginVertical: 12 }} onPress={() => { void refreshTeams(); }}>{loadError} (tap to retry)</Text> : null}
                 {/* --- MAIN CONTENT AREA --- */}
                 {isLoading ? (
                     <View style={styles.loadingContainer}>
@@ -170,6 +245,51 @@ export default function TeamScreen() {
                     </View>
                 )}
             </ScrollView>
+
+            <SearchFloat<TeamItem>
+                visible={isSearchVisible}
+                data={findableTeams}
+                searchFields={['name', 'description']}
+                placeholder="Find a team"
+                contentLayout="list"
+                onClose={() => setIsSearchVisible(false)}
+                renderItem={(team) => (
+                    <TouchableOpacity key={team.id}
+                        style={{ backgroundColor: '#FFFFFF', borderRadius: 12, padding: 14 }}
+                        onPress={() => { void requestJoin(team); }}>
+                        <Text style={{ fontFamily: 'GoogleSans-Bold', color: '#0F172A' }}>{team.name}</Text>
+                        <Text style={{ color: '#64748B', marginTop: 4 }} numberOfLines={2}>
+                            {team.description || `${team.membersCount} thành viên`} · Tap to request join
+                        </Text>
+                    </TouchableOpacity>
+                )}
+                renderEmpty={() => <Text style={{ color: '#64748B', padding: 12 }}>Không tìm thấy nhóm có thể tham gia.</Text>}
+            />
+
+            <Modal transparent visible={isCreateVisible} animationType="fade"
+                onRequestClose={() => setIsCreateVisible(false)}>
+                <View style={{ flex: 1, backgroundColor: 'rgba(15,23,42,0.5)', justifyContent: 'center', padding: 24 }}>
+                    <View style={{ backgroundColor: '#FFFFFF', borderRadius: 16, padding: 20, gap: 14 }}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <Text style={{ fontFamily: 'GoogleSans-Bold', fontSize: 20, color: '#0F172A' }}>Create a new team</Text>
+                            <TouchableOpacity disabled={submitting} onPress={() => setIsCreateVisible(false)}>
+                                <Octicons name="x" size={24} color="#64748B" />
+                            </TouchableOpacity>
+                        </View>
+                        <TextInput value={teamName} onChangeText={setTeamName} placeholder="Team name"
+                            maxLength={100} style={{ borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 12, padding: 12, color: '#0F172A' }} />
+                        <TextInput value={teamDescription} onChangeText={setTeamDescription} placeholder="Description (optional)"
+                            multiline maxLength={500} style={{ minHeight: 72, borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 12, padding: 12, textAlignVertical: 'top', color: '#0F172A' }} />
+                        {formError ? <Text style={{ color: '#B91C1C' }} selectable>{formError}</Text> : null}
+                        <TouchableOpacity disabled={submitting} onPress={() => { void createTeam(); }}
+                            style={{ backgroundColor: '#50C1FF', padding: 14, borderRadius: 12, alignItems: 'center', opacity: submitting ? 0.5 : 1 }}>
+                            <Text style={{ color: '#FFFFFF', fontFamily: 'GoogleSans-Bold' }}>
+                                {submitting ? 'Saving...' : 'Create team'}
+                            </Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
 
             {/* --- DROPDOWN SORT MENU MODAL --- */}
             <Modal

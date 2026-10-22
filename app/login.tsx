@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
     StyleSheet,
     View,
@@ -6,24 +6,66 @@ import {
     TouchableOpacity,
     Image,
     Dimensions,
+    TextInput,
+    Modal,
+    ActivityIndicator,
+    KeyboardAvoidingView,
+    Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { newUiAuth } from '../api/integration/newui-gateway';
 
 const { width, height } = Dimensions.get('window');
 
 export default function LoginScreen() {
     const router = useRouter();
 
+    const [emailVisible, setEmailVisible] = useState(false);
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [pending, setPending] = useState(false);
+    const [authError, setAuthError] = useState('');
+    const [googleMessage, setGoogleMessage] = useState('');
+
+    useEffect(() => {
+        let alive = true;
+        void newUiAuth.getAuthSession().then((session) => {
+            if (alive && session?.accessToken && session.userId) router.replace('/(tabs)');
+        }).catch((error) => { if (alive) console.warn('RESTORE_SESSION:', error); });
+        return () => { alive = false; };
+    }, [router]);
+
     const handleGoogleLogin = () => {
-        // Xử lý đăng nhập Google tại đây
-        router.replace('/(tabs)');
+        // Chưa có Google ID Token / OAuth callback: không cho vào app giả đăng nhập.
+        setGoogleMessage('Google OAuth chưa được cấu hình. Hãy dùng Email để kiểm thử.');
     };
 
     const handleEmailLogin = () => {
-        // Xử lý hoặc chuyển sang trang nhập Email/Password
-        router.replace('/(tabs)');
+        setGoogleMessage('');
+        setAuthError('');
+        setEmailVisible(true);
+    };
+
+    const submitEmailLogin = async () => {
+        if (pending) return;
+        if (!email.trim() || !password) {
+            setAuthError('Vui lòng nhập email và mật khẩu.');
+            return;
+        }
+        setPending(true);
+        setAuthError('');
+        try {
+            await newUiAuth.signInWithEmail(email.trim(), password);
+            setEmailVisible(false);
+            setPassword('');
+            router.replace('/(tabs)');
+        } catch (error) {
+            setAuthError(error instanceof Error ? error.message : 'Không thể đăng nhập.');
+        } finally {
+            setPending(false);
+        }
     };
 
     return (
@@ -73,7 +115,31 @@ export default function LoginScreen() {
                     </Text>
                 </View>
 
+                {googleMessage ? <Text style={{ color: '#B45309', textAlign: 'center', marginTop: 8 }}>{googleMessage}</Text> : null}
             </View>
+            <Modal transparent visible={emailVisible} animationType="fade" onRequestClose={() => setEmailVisible(false)}>
+                <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                    style={{ flex: 1, justifyContent: 'center', padding: 24, backgroundColor: 'rgba(15,23,42,0.55)' }}>
+                    <View style={{ backgroundColor: '#FFFFFF', padding: 24, borderRadius: 20, gap: 14 }}>
+                        <Text style={{ fontSize: 22, fontWeight: '700', color: '#0F172A' }}>Sign in with Email</Text>
+                        <TextInput autoCapitalize="none" keyboardType="email-address" autoComplete="email"
+                            placeholder="Email" value={email} onChangeText={setEmail}
+                            style={{ borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 12, padding: 14, color: '#0F172A' }} />
+                        <TextInput secureTextEntry autoComplete="password" placeholder="Password"
+                            value={password} onChangeText={setPassword}
+                            onSubmitEditing={() => { void submitEmailLogin(); }}
+                            style={{ borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 12, padding: 14, color: '#0F172A' }} />
+                        {authError ? <Text style={{ color: '#DC2626' }}>{authError}</Text> : null}
+                        <TouchableOpacity onPress={() => { void submitEmailLogin(); }} disabled={pending}
+                            style={{ backgroundColor: '#83CFFE', borderRadius: 12, padding: 15, alignItems: 'center' }}>
+                            {pending ? <ActivityIndicator color="#0F172A" /> : <Text style={{ color: '#0F172A', fontWeight: '700' }}>Sign in</Text>}
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => setEmailVisible(false)} disabled={pending} style={{ alignItems: 'center', padding: 6 }}>
+                            <Text style={{ color: '#475569' }}>Cancel</Text>
+                        </TouchableOpacity>
+                    </View>
+                </KeyboardAvoidingView>
+            </Modal>
         </SafeAreaView>
     );
 }

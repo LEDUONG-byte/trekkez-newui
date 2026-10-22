@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
     StyleSheet,
     FlatList,
@@ -8,6 +8,10 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Octicons } from '@expo/vector-icons';
+import { useFocusEffect, router } from 'expo-router';
+import { loadExploreFeed, loadFollowingAuthorIds } from '../../api/integration/newui-gateway';
+import { setRemoteCommunityLike, setRemoteCommunitySave } from '../../api/services/community/community-supabase';
+import { setUserFollowing } from '../../api/services/community/social-supabase';
 
 import PostCard, { PostCardProps } from '../../components/PostCard';
 import TeamPostCard, { TeamPostCardProps } from '../../components/TeamPostCard';
@@ -16,7 +20,7 @@ import SearchFloat from '../../components/SearchFloat';
 export type SubTabType = 'EXPLORE' | 'FOLLOWING';
 
 export type FeedItem =
-    | ({ itemType: 'POST'; id: string; isFollowing?: boolean } & PostCardProps)
+    | ({ itemType: 'POST'; id: string; authorId?: string; isFollowing?: boolean } & PostCardProps)
     | ({ itemType: 'TEAM'; id: string; isFollowing?: boolean } & TeamPostCardProps);
 
 const MOCK_FEED_ITEMS: FeedItem[] = [
@@ -80,22 +84,52 @@ export default function HomeScreen() {
     const bottomMargin = Math.max(insets.bottom + 20, 16);
 
     const [subTab, setSubTab] = useState<SubTabType>('EXPLORE');
-    const [feedItems, setFeedItems] = useState<FeedItem[]>(MOCK_FEED_ITEMS);
+    const [selectedSearchId, setSelectedSearchId] = useState('');
+    const [feedItems, setFeedItems] = useState<FeedItem[]>([]);
+    const [busy, setBusy] = useState(true);
+    const [feedError, setFeedError] = useState('');
+    const [renderVersion, setRenderVersion] = useState(0);
+    const refresh = useCallback(async () => {
+        setBusy(true); setFeedError('');
+        try {
+            const [explore, authorIds] = await Promise.all([loadExploreFeed(), loadFollowingAuthorIds()]);
+            // Follow is a relationship to an AUTHOR (not a post or team card).
+            const next: FeedItem[] = explore.map((p) => ({
+                ...p,
+                isFollowing: p.itemType === 'POST' && Boolean(p.authorId && authorIds.has(p.authorId)),
+            })) as FeedItem[];
+            setFeedItems(next);
+            setRenderVersion((v) => v + 1);
+        } catch (error) {
+            setFeedItems([]);
+            setFeedError(error instanceof Error ? error.message : String(error));
+        } finally { setBusy(false); }
+    }, []);
+    useFocusEffect(useCallback(() => { void refresh(); }, [refresh]));
     const [isSearchVisible, setIsSearchVisible] = useState(false);
 
     const filteredItems = useMemo(() => {
-        if (subTab === 'FOLLOWING') {
-            return feedItems.filter((item) => item.isFollowing);
-        }
-        return feedItems;
-    }, [subTab, feedItems]);
+        const scope = subTab === 'FOLLOWING'
+            ? feedItems.filter((item) => item.itemType === 'POST' && Boolean(item.authorId && item.isFollowing))
+            : feedItems;
+        return selectedSearchId ? scope.filter((item) => item.id === selectedSearchId) : scope;
+    }, [subTab, feedItems, selectedSearchId]);
 
-    const handleToggleFollow = (id: string) => {
-        setFeedItems((prev) =>
-            prev.map((item) =>
-                item.id === id ? { ...item, isFollowing: !item.isFollowing } : item
-            )
-        );
+    const handleToggleFollow = async (item: FeedItem) => {
+        if (item.itemType !== 'POST' || !item.authorId) {
+            setFeedError('Chưa có tài khoản tác giả để theo dõi.'); return;
+        }
+        try {
+            await setUserFollowing(item.authorId, !item.isFollowing);
+            await refresh();
+        } catch (error) { const message = error instanceof Error ? error.message : String(error); await refresh(); setFeedError(message); }
+    };
+    const handlePostAction = async (item: Extract<FeedItem, { itemType: 'POST' }>, action: 'like' | 'save') => {
+        try {
+            if (action === 'like') await setRemoteCommunityLike(item.id, !item.isLiked);
+            else await setRemoteCommunitySave(item.id, !item.isBookmarked);
+            await refresh();
+        } catch (error) { const message = error instanceof Error ? error.message : String(error); await refresh(); setFeedError(message); }
     };
 
     const searchPostsData = useMemo(() => {
@@ -118,6 +152,11 @@ export default function HomeScreen() {
                     >
                         <Octicons name="search" size={18} color="#0F172A" />
                     </TouchableOpacity>
+                    {selectedSearchId ? (
+                        <TouchableOpacity style={styles.circleHeaderBtn} onPress={() => setSelectedSearchId('')}>
+                            <Octicons name="x" size={18} color="#0F172A" />
+                        </TouchableOpacity>
+                    ) : null}
                 </View>
             </View>
 
@@ -128,7 +167,7 @@ export default function HomeScreen() {
                         subTab === 'EXPLORE' ? styles.tabBtnActive : styles.tabBtnInactive,
                     ]}
                     activeOpacity={0.8}
-                    onPress={() => setSubTab('EXPLORE')}
+                    onPress={() => { setSelectedSearchId(''); setSubTab('EXPLORE'); }}
                 >
                     <Text
                         style={[
@@ -146,7 +185,7 @@ export default function HomeScreen() {
                         subTab === 'FOLLOWING' ? styles.tabBtnActive : styles.tabBtnInactive,
                     ]}
                     activeOpacity={0.8}
-                    onPress={() => setSubTab('FOLLOWING')}
+                    onPress={() => { setSelectedSearchId(''); setSubTab('FOLLOWING'); }}
                 >
                     <Text
                         style={[
@@ -160,6 +199,7 @@ export default function HomeScreen() {
             </View>
 
             <View style={styles.dashedLine} />
+            {feedError ? <Text style={{ color: '#B91C1C', paddingHorizontal: 24, paddingBottom: 8 }} selectable>{feedError}</Text> : null}
         </View>
     );
 
@@ -169,7 +209,7 @@ export default function HomeScreen() {
                 <View style={styles.cardItemWrapper}>
                     <TeamPostCard
                         {...item}
-                        onFollowPress={() => handleToggleFollow(item.id)}
+                        onFollowPress={() => setFeedError('Team follow is not connected.')}
                         onPressTeamCard={() => console.log('Team card pressed:', item.id)}
                     />
                 </View>
@@ -178,9 +218,12 @@ export default function HomeScreen() {
 
         return (
             <View style={styles.cardItemWrapper}>
-                <PostCard
-                    {...item}
-                    onFollowPress={() => handleToggleFollow(item.id)}
+                    <PostCard
+                        key={`${item.id}-${renderVersion}-${item.isFollowing ? 1 : 0}`}
+                        {...item}
+                        onLikePress={() => { void handlePostAction(item, 'like'); }}
+                        onBookmarkPress={() => { void handlePostAction(item, 'save'); }}
+                        onFollowPress={() => { void handleToggleFollow(item); }}
                     onCommentPress={() => console.log('Comment pressed:', item.id)}
                     onSharePress={() => console.log('Share pressed:', item.id)}
                 />
@@ -191,6 +234,9 @@ export default function HomeScreen() {
     return (
         <SafeAreaView style={styles.container}>
             <FlatList
+                refreshing={busy}
+                onRefresh={() => { void refresh(); }}
+                ListEmptyComponent={!busy ? <Text style={{ color: '#64748B', padding: 24 }}>Không có bài đăng để hiển thị.</Text> : null}
                 style={styles.feedList}
                 data={filteredItems}
                 keyExtractor={(item, index) => item.id ?? index.toString()}
@@ -202,7 +248,8 @@ export default function HomeScreen() {
             />
 
             <View style={[styles.fabContainer, { bottom: bottomMargin + 70 }]}>
-                <TouchableOpacity style={styles.fabBtn} activeOpacity={0.85}>
+                <TouchableOpacity style={styles.fabBtn} activeOpacity={0.85}
+                    onPress={() => setFeedError('Create post chưa có form nhập nội dung trong New UI.')}>
                     <Octicons name="plus" size={24} color="#FFFFFF" />
                 </TouchableOpacity>
             </View>
@@ -219,7 +266,7 @@ export default function HomeScreen() {
                         key={item.id}
                         style={styles.searchResultRow}
                         activeOpacity={0.8}
-                        onPress={() => setIsSearchVisible(false)}
+                        onPress={() => { setSelectedSearchId(item.id); setIsSearchVisible(false); }}
                     >
                         <View style={styles.searchAvatarPlaceholder} />
                         <View style={styles.searchInfoCol}>

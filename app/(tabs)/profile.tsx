@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
     StyleSheet,
     View,
@@ -8,10 +8,15 @@ import {
     ScrollView,
     Dimensions,
     ImageSourcePropType,
+    Modal,
+    ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Octicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
+import { loadProfileOverview, newUiAuth } from '../../api/integration/newui-gateway';
+import { getPublicProfile } from '../../api/services/community/social-supabase';
+import { getRemoteCommunityPosts } from '../../api/services/community/community-supabase';
 
 const { width } = Dimensions.get('window');
 
@@ -140,10 +145,69 @@ export default function ProfileScreen() {
     const router = useRouter();
     const [activeTab, setActiveTab] = useState<'STATS' | 'TIMELINE'>('STATS');
 
-    // Dùng biến trực tiếp giúp Fast Refresh cập nhật ngay khi sửa MOCK_DATA
-    const profileData: UserProfile = MOCK_USER_PROFILE;
-    const statsData: UserStats = MOCK_USER_STATS;
-    const timelineData: TimelinePost[] = MOCK_TIMELINE_POSTS;
+    const [profileData, setProfileData] = useState<UserProfile>({
+        id: '', fullName: '', username: '', avatarUrl: require('../../assets/images/logoW.png'),
+        followersCount: 0, followingCount: 0,
+    });
+    const [statsData, setStatsData] = useState<UserStats>({
+        highlightCards: [
+            { label: 'Total Distance', value: '0 km', color: '#BAE6FD' },
+            { label: 'Completed Routes', value: '—', color: '#FEF08A' },
+            { label: 'Moving Time', value: '0h 0m', color: '#86EFAC' },
+            { label: 'Elevation Gain', value: '0 m', color: '#DDD6FE' },
+        ],
+        totalActivities: 0, totalDistanceKm: 0, movingTimeFormatted: '0h 0m',
+        currentStreak: 0,
+        streakTitle: 'Streak not available',
+        streakGoalText: 'Streak calculation is not connected yet',
+    });
+    const [timelineData, setTimelineData] = useState<TimelinePost[]>([]);
+    const [loadError, setLoadError] = useState('');
+    const [busy, setBusy] = useState(true);
+    const [settingsVisible, setSettingsVisible] = useState(false);
+    const refresh = useCallback(async () => {
+        setBusy(true); setLoadError('');
+        try {
+            const overview = await loadProfileOverview();
+            const [social, posts] = await Promise.all([
+                getPublicProfile(overview.id).catch(() => null),
+                getRemoteCommunityPosts().catch(() => []),
+            ]);
+            setProfileData({
+                id: overview.id, fullName: overview.fullName || overview.username || 'TrekkEZ user',
+                username: overview.username || overview.id.slice(0, 8),
+                avatarUrl: overview.avatarUrl || require('../../assets/images/logoW.png'),
+                followersCount: social?.followerCount ?? 0,
+                followingCount: social?.followingCount ?? 0,
+            });
+            setTimelineData(posts.filter((p) => p.authorId === overview.id && Boolean(p.image))
+                .map((p) => ({ id: p.id, imageUrl: p.image })));
+            setStatsData({
+                highlightCards: [
+                    { label: 'Total Distance', value: `${overview.totalDistanceKm} km`, color: '#BAE6FD' },
+                    { label: 'Completed Routes', value: '—', color: '#FEF08A' },
+                    { label: 'Moving Time', value: overview.movingTimeFormatted, color: '#86EFAC' },
+                    { label: 'Elevation Gain', value: `${overview.totalElevationGainMeters} m`, color: '#DDD6FE' },
+                ],
+                totalActivities: overview.totalActivities,
+                totalDistanceKm: overview.totalDistanceKm,
+                movingTimeFormatted: overview.movingTimeFormatted,
+                currentStreak: 0,
+                streakTitle: 'Streak not available',
+                streakGoalText: 'Streak calculation is not connected yet',
+            });
+        } catch (error) {
+            setLoadError(error instanceof Error ? error.message : String(error));
+        } finally { setBusy(false); }
+    }, []);
+    useFocusEffect(useCallback(() => { void refresh(); }, [refresh]));
+    const doSignOut = async () => {
+        try {
+            await newUiAuth.signOut();
+            setSettingsVisible(false);
+            router.replace('/login');
+        } catch (error) { setLoadError(error instanceof Error ? error.message : String(error)); }
+    };
 
     const streakColors = getStreakColors(statsData.currentStreak);
 
@@ -160,12 +224,14 @@ export default function ProfileScreen() {
                         <TouchableOpacity style={styles.circleHeaderBtn} activeOpacity={0.7}>
                             <Octicons name="upload" size={18} color="#0F172A" />
                         </TouchableOpacity>
-                        <TouchableOpacity style={styles.circleHeaderBtn} activeOpacity={0.7}>
+                        <TouchableOpacity style={styles.circleHeaderBtn} activeOpacity={0.7} onPress={() => setSettingsVisible(true)}>
                             <Octicons name="gear" size={18} color="#0F172A" />
                         </TouchableOpacity>
                     </View>
                 </View>
 
+                {busy ? <ActivityIndicator color="#0284C7" /> : null}
+                {loadError ? <Text style={{ color: '#B91C1C' }} onPress={() => { void refresh(); }}>{loadError} (tap to retry)</Text> : null}
                 {/* --- USER INFO ROW --- */}
                 <View style={styles.userInfoSection}>
                     <View style={styles.profileRow}>
@@ -309,6 +375,17 @@ export default function ProfileScreen() {
                     </View>
                 )}
             </ScrollView>
+            <Modal transparent visible={settingsVisible} animationType="fade" onRequestClose={() => setSettingsVisible(false)}>
+                <View style={{ flex: 1, justifyContent: 'center', padding: 24, backgroundColor: 'rgba(15,23,42,0.55)' }}>
+                    <View style={{ padding: 24, backgroundColor: '#FFFFFF', borderRadius: 20, gap: 16 }}>
+                        <Text style={{ fontSize: 20, fontWeight: '700', color: '#0F172A' }}>Account</Text>
+                        <TouchableOpacity onPress={() => { void doSignOut(); }} style={{ padding: 14, backgroundColor: '#FEE2E2', borderRadius: 12 }}>
+                            <Text style={{ color: '#991B1B', fontWeight: '700' }}>Sign out</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => setSettingsVisible(false)} style={{ padding: 8 }}><Text>Cancel</Text></TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
         </SafeAreaView>
     );
 }
