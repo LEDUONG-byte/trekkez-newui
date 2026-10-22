@@ -31,7 +31,7 @@ export interface PlanItem {
 }
 
 // =====================================================================
-// MOCK DATA (Dễ dàng thay thế bằng dữ liệu từ Database / API)
+// MOCK DATA
 // =====================================================================
 const INITIAL_PLANS: PlanItem[] = [
     {
@@ -116,7 +116,6 @@ export default function PlanScreen() {
         }
     }, [rawList, currentSortBy]);
 
-    // Tự động kiểm tra trạng thái rỗng từ dữ liệu thực tế
     const isEmpty = sortedList.length === 0;
 
     const handleSelectSort = (option: SortOption) => {
@@ -126,6 +125,23 @@ export default function PlanScreen() {
             setRouteSortBy(option);
         }
         setIsMenuVisible(false);
+    };
+
+    // -----------------------------------------------------------------
+    // CHUYỂN HƯỚNG TỚI TRANG QUẢN LÝ KHI BẤM VÀO TIÊU ĐỀ
+    // -----------------------------------------------------------------
+    const handleItemPress = (item: PlanItem) => {
+        if (subTab === 'PLAN') {
+            router.push({
+                pathname: '/manage-plan',
+                params: { id: item.id },
+            });
+        } else {
+            router.push({
+                pathname: '/manage-route',
+                params: { id: item.id },
+            });
+        }
     };
 
     return (
@@ -249,6 +265,7 @@ export default function PlanScreen() {
                                 isOwnedByYou={item.isOwnedByYou}
                                 headerColor={item.color}
                                 defaultExpanded={false}
+                                onHeaderPress={() => handleItemPress(item)}
                             >
                                 {item.details ? (
                                     <View style={styles.cardContentWrapper}>

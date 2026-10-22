@@ -1,0 +1,310 @@
+import React from 'react';
+import {
+    StyleSheet,
+    View,
+    Text,
+    TouchableOpacity,
+    ScrollView,
+    Image,
+    Alert,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Octicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+
+export default function SettingScreen() {
+    const router = useRouter();
+
+    const handleEditProfile = () => {
+        // Navigate or open profile edit modal
+    };
+
+    const handleTermsOfService = () => {
+        // Open Terms of Service
+    };
+
+    const handlePrivacyPolicy = () => {
+        // Open Privacy Policy
+    };
+
+    const handleLogout = () => {
+        Alert.alert('Log Out', 'Are you sure you want to log out?', [
+            { text: 'Cancel', style: 'cancel' },
+            {
+                text: 'Log Out',
+                style: 'destructive',
+                onPress: () => {
+                    // Logout logic
+                },
+            },
+        ]);
+    };
+
+    const handleDeleteAccount = () => {
+        Alert.alert(
+            'Delete Account',
+            'All your data will be permanently deleted. Are you sure you want to proceed?',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Delete',
+                    style: 'destructive',
+                    onPress: () => {
+                        // Account deletion logic
+                    },
+                },
+            ]
+        );
+    };
+
+    return (
+        <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+            {/* --- HEADER CONTAINER --- */}
+            <View style={styles.headerContainer}>
+                <View style={styles.headerBar}>
+                    <TouchableOpacity
+                        style={styles.backBtn}
+                        onPress={() => router.back()}
+                        activeOpacity={0.7}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    >
+                        <Octicons name="chevron-left" size={24} color="#0F172A" />
+                    </TouchableOpacity>
+
+                    <Text style={styles.headerTitle}>SETTING</Text>
+
+                    <View style={styles.placeholderRight} />
+                </View>
+            </View>
+
+            <ScrollView
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.scrollContent}
+            >
+                {/* --- PROFILE CARD --- */}
+                <View style={styles.profileCard}>
+                    <View style={styles.profileLeft}>
+                        <Image
+                            source={{
+                                uri: 'https://images.unsplash.com/photo-1543852786-1cf6624b9987?auto=format&fit=crop&q=80&w=200',
+                            }}
+                            style={styles.avatarImage}
+                        />
+
+                        <View style={styles.profileInfo}>
+                            <Text style={styles.profileName} numberOfLines={1}>
+                                Gallant Frog
+                            </Text>
+                            <Text style={styles.profileEmail} numberOfLines={1}>
+                                hoduong085@gmail.com
+                            </Text>
+                        </View>
+                    </View>
+
+                    <TouchableOpacity
+                        style={styles.editBtn}
+                        activeOpacity={0.7}
+                        onPress={handleEditProfile}
+                    >
+                        <Octicons name="pencil" size={18} color="#94A3B8" />
+                    </TouchableOpacity>
+                </View>
+
+                {/* --- SECTION 1: TERMS & POLICIES --- */}
+                <View style={styles.sectionContainer}>
+                    <Text style={styles.sectionHeaderTitle}>Terms & Policies</Text>
+
+                    <View style={styles.cardGroup}>
+                        <TouchableOpacity
+                            style={styles.cardItem}
+                            activeOpacity={0.7}
+                            onPress={handleTermsOfService}
+                        >
+                            <Text style={styles.cardItemText}>Terms of Service</Text>
+                        </TouchableOpacity>
+
+                        <View style={styles.divider} />
+
+                        <TouchableOpacity
+                            style={styles.cardItem}
+                            activeOpacity={0.7}
+                            onPress={handlePrivacyPolicy}
+                        >
+                            <Text style={styles.cardItemText}>Privacy Policy</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+
+                {/* --- SECTION 2: ACCOUNT --- */}
+                <View style={styles.sectionContainer}>
+                    <Text style={styles.sectionHeaderTitle}>Account</Text>
+
+                    <View style={styles.cardGroup}>
+                        <TouchableOpacity
+                            style={styles.cardItem}
+                            activeOpacity={0.7}
+                            onPress={handleLogout}
+                        >
+                            <Text style={styles.cardItemText}>Log Out</Text>
+                        </TouchableOpacity>
+
+                        <View style={styles.divider} />
+
+                        <TouchableOpacity
+                            style={styles.cardItem}
+                            activeOpacity={0.7}
+                            onPress={handleDeleteAccount}
+                        >
+                            <Text style={styles.cardItemText}>Delete Account</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+
+                {/* --- VERSION INFO --- */}
+                <View style={styles.versionRow}>
+                    <Octicons name="briefcase" size={16} color="#94A3B8" />
+                    <Text style={styles.versionText}>v1.2.3 (w1.15.4)</Text>
+                </View>
+            </ScrollView>
+        </SafeAreaView>
+    );
+}
+
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        backgroundColor: '#F8FAFC',
+    },
+    headerContainer: {
+        width: '100%',
+        backgroundColor: '#F8FAFC',
+    },
+    headerBar: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: 24,
+        paddingTop: 12,
+        marginBottom: 16,
+    },
+    headerTitle: {
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 22,
+        color: '#0F172A',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
+    },
+    backBtn: {
+        width: 36,
+        height: 36,
+        justifyContent: 'center',
+        alignItems: 'flex-start',
+    },
+    placeholderRight: {
+        width: 36,
+    },
+    scrollContent: {
+        paddingHorizontal: 24,
+        paddingTop: 8,
+        paddingBottom: 40,
+        gap: 24,
+    },
+
+    // Profile Card
+    profileCard: {
+        backgroundColor: '#FFFFFF',
+        borderRadius: 20,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: 20,
+        paddingVertical: 18,
+    },
+    profileLeft: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 14,
+        flex: 1,
+    },
+    avatarImage: {
+        width: 52,
+        height: 52,
+        borderRadius: 26,
+        backgroundColor: '#E2E8F0',
+    },
+    profileInfo: {
+        flex: 1,
+        justifyContent: 'center',
+        gap: 4,
+    },
+    profileName: {
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 16,
+        color: '#0F172A',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
+    },
+    profileEmail: {
+        fontFamily: 'GoogleSans-Regular',
+        fontSize: 13,
+        color: '#94A3B8',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
+    },
+    editBtn: {
+        padding: 6,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+
+    // Section & Card Group
+    sectionContainer: {
+        gap: 10,
+    },
+    sectionHeaderTitle: {
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 14,
+        color: '#64748B',
+        paddingLeft: 4,
+        includeFontPadding: false,
+        textAlignVertical: 'center',
+    },
+    cardGroup: {
+        backgroundColor: '#FFFFFF',
+        borderRadius: 18,
+        overflow: 'hidden',
+    },
+    cardItem: {
+        paddingHorizontal: 20,
+        paddingVertical: 18,
+        justifyContent: 'center',
+    },
+    cardItemText: {
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 15,
+        color: '#0F172A',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
+    },
+    divider: {
+        height: 1,
+        backgroundColor: '#F1F5F9',
+        marginHorizontal: 20,
+    },
+
+    // Version Info
+    versionRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        paddingLeft: 6,
+        marginTop: 4,
+    },
+    versionText: {
+        fontFamily: 'GoogleSans-Medium',
+        fontSize: 13,
+        color: '#94A3B8',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
+    },
+});

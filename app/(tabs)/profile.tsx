@@ -140,7 +140,6 @@ export default function ProfileScreen() {
     const router = useRouter();
     const [activeTab, setActiveTab] = useState<'STATS' | 'TIMELINE'>('STATS');
 
-    // Dùng biến trực tiếp giúp Fast Refresh cập nhật ngay khi sửa MOCK_DATA
     const profileData: UserProfile = MOCK_USER_PROFILE;
     const statsData: UserStats = MOCK_USER_STATS;
     const timelineData: TimelinePost[] = MOCK_TIMELINE_POSTS;
@@ -160,7 +159,13 @@ export default function ProfileScreen() {
                         <TouchableOpacity style={styles.circleHeaderBtn} activeOpacity={0.7}>
                             <Octicons name="upload" size={18} color="#0F172A" />
                         </TouchableOpacity>
-                        <TouchableOpacity style={styles.circleHeaderBtn} activeOpacity={0.7}>
+
+                        {/* NÚT CÀI ĐẶT: Chuyển hướng sang trang settings */}
+                        <TouchableOpacity
+                            style={styles.circleHeaderBtn}
+                            activeOpacity={0.7}
+                            onPress={() => router.push('/settings')}
+                        >
                             <Octicons name="gear" size={18} color="#0F172A" />
                         </TouchableOpacity>
                     </View>
