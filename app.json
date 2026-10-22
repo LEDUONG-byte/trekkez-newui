@@ -1,0 +1,39 @@
+{
+  "expo": {
+    "name": "trekkez2",
+    "slug": "trekkez2",
+    "scheme": "trekkez2",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#4cc2fe"
+      },
+      "package": "com.leduong232steam.trekkez2"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router"
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "08f18841-01e1-4b1b-81a6-ed5881f98ac4"
+      }
+    },
+    "owner": "leduong232s-team"
+  }
+}
