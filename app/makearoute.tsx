@@ -1,243 +1,442 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
     StyleSheet,
     View,
     Text,
     TouchableOpacity,
     TextInput,
-    Dimensions,
     Platform,
     Modal,
     TouchableWithoutFeedback,
+    ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Octicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import Mapbox from '@rnmapbox/maps';
 import * as Location from 'expo-location';
 
-// Cấu hình Mapbox Token
 const MAPBOX_KEY = process.env.EXPO_PUBLIC_MAPBOX_KEY;
 if (MAPBOX_KEY) {
     Mapbox.setAccessToken(MAPBOX_KEY);
 }
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-
 type ScreenState = 'INITIAL' | 'PIN_SELECTED' | 'WAYPOINT_PANEL' | 'ROUTE_ACTIVE';
 
-interface WaypointPoint {
-    latitude: number;
-    longitude: number;
+interface WaypointItem {
+    id: string;
+    coordinate: [number, number];
     label: string;
 }
 
 export default function MakeARouteScreen() {
     const router = useRouter();
     const cameraRef = useRef<any>(null);
+    const insets = useSafeAreaInsets();
 
-    // -----------------------------------------------------------------
-    // STATES MANAGEMENT
-    // -----------------------------------------------------------------
     const [screenState, setScreenState] = useState<ScreenState>('INITIAL');
-    const [startLocation, setStartLocation] = useState('Current location');
-    const [destination, setDestination] = useState('');
+    const [startLocationText, setStartLocationText] = useState('Current location');
+    const [destinationText, setDestinationText] = useState('');
     const [waypointMode, setWaypointMode] = useState<'along' | 'end'>('along');
     const [isOffGrid, setIsOffGrid] = useState(false);
+    const [isCalculatingRoute, setIsCalculatingRoute] = useState(false);
 
-    // Modals
     const [isSaveMenuOpen, setIsSaveMenuOpen] = useState(false);
     const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
 
-    const [selectedPin, setSelectedPin] = useState<{ latitude: number; longitude: number } | null>(null);
-    const [userCoords, setUserCoords] = useState<[number, number]>([106.6882, 10.8225]); // Mặc định TP.HCM
+    const [userCoords, setUserCoords] = useState<[number, number] | null>(null);
+    const [selectedPin, setSelectedPin] = useState<[number, number] | null>(null);
 
-    // Xin quyền và lấy vị trí thực tế khi mở màn hình
+    const [currentZoom, setCurrentZoom] = useState<number>(16);
+    const [centerLat, setCenterLat] = useState<number>(10.8225);
+
+    const [startPoint, setStartPoint] = useState<WaypointItem | null>(null);
+    const [destinationPoint, setDestinationPoint] = useState<WaypointItem | null>(null);
+    const [waypointsList, setWaypointsList] = useState<WaypointItem[]>([]);
+
+    const [routeGeometry, setRouteGeometry] = useState<[number, number][]>([]);
+    const [routeStats, setRouteStats] = useState({
+        distance: 0,
+        duration: 0,
+        elevGain: 0,
+        elevLoss: 0,
+    });
+
+    // -----------------------------------------------------------------
+    // TÍNH TOÁN THANH TỶ LỆ CHỮ L THEO MỨC ZOOM VÀ VĨ ĐỘ
+    // -----------------------------------------------------------------
+    const scaleBarData = useMemo(() => {
+        const metersPerDp =
+            (40075016.686 * Math.cos((centerLat * Math.PI) / 180)) /
+            (512 * Math.pow(2, currentZoom));
+
+        const niceSteps = [
+            5, 10, 20, 25, 50, 100, 200, 250, 500,
+            1000, 2000, 2500, 5000, 10000, 20000, 50000,
+        ];
+        const maxWidth = 80;
+        let chosenStep = 50;
+        let chosenWidth = 60;
+
+        for (const s of niceSteps) {
+            const w = s / metersPerDp;
+            if (w <= maxWidth) {
+                chosenStep = s;
+                chosenWidth = w;
+            } else {
+                break;
+            }
+        }
+
+        const isKm = chosenStep >= 1000;
+        const displayValue = isKm ? chosenStep / 1000 : chosenStep;
+        const formattedText =
+            isKm && displayValue % 1 !== 0
+                ? displayValue.toFixed(1)
+                : `${displayValue}`;
+
+        return {
+            width: Math.max(40, Math.round(chosenWidth)),
+            text: `${formattedText} ${isKm ? 'km' : 'm'}`,
+        };
+    }, [currentZoom, centerLat]);
+
+    const handleCameraChanged = (state: any) => {
+        const zoom = state?.properties?.zoom ?? state?.properties?.zoomLevel;
+        const center = state?.properties?.center;
+        if (typeof zoom === 'number') {
+            setCurrentZoom(zoom);
+        }
+        if (Array.isArray(center) && center.length === 2) {
+            setCenterLat(center[1]);
+        }
+    };
+
     useEffect(() => {
         (async () => {
             let { status } = await Location.requestForegroundPermissionsAsync();
-            if (status !== 'granted') {
-                console.log('Quyền truy cập vị trí bị từ chối');
-                return;
-            }
+            if (status !== 'granted') return;
 
             try {
-                let location = await Location.getCurrentPositionAsync({});
+                let location = await Location.getCurrentPositionAsync({
+                    accuracy: Location.Accuracy.High,
+                });
                 const coords: [number, number] = [location.coords.longitude, location.coords.latitude];
                 setUserCoords(coords);
+                setCenterLat(location.coords.latitude);
 
-                // Di chuyển camera về vị trí thực tế của người dùng
+                setStartPoint({
+                    id: 'point-a',
+                    coordinate: coords,
+                    label: 'A',
+                });
+
                 if (cameraRef.current) {
                     cameraRef.current.setCamera({
                         centerCoordinate: coords,
-                        zoomLevel: 15,
+                        zoomLevel: 16,
                         animationDuration: 1000,
                     });
                 }
             } catch (error) {
-                console.log('Không lấy được vị trí GPS:', error);
+                console.log('GPS Error:', error);
             }
         })();
     }, []);
 
-    // Hàm căn lại camera về vị trí người dùng khi bấm nút định vị bên phải
-    const handleCenterOnUser = async () => {
+    const generateRoute = async (
+        start: [number, number],
+        end: [number, number],
+        waypoints: WaypointItem[] = []
+    ) => {
+        setIsCalculatingRoute(true);
         try {
-            let location = await Location.getCurrentPositionAsync({});
-            const coords: [number, number] = [location.coords.longitude, location.coords.latitude];
-            setUserCoords(coords);
+            const allPoints = [start, ...waypoints.map((w) => w.coordinate), end];
+            const coordinatesString = allPoints.map((pt) => `${pt[0]},${pt[1]}`).join(';');
+
+            const response = await fetch(
+                `https://api.mapbox.com/directions/v5/mapbox/walking/${coordinatesString}?geometries=geojson&overview=full&access_token=${MAPBOX_KEY}`
+            );
+            const data = await response.json();
+
+            if (data.routes && data.routes.length > 0) {
+                const primaryRoute = data.routes[0];
+                setRouteGeometry(primaryRoute.geometry.coordinates);
+                setRouteStats({
+                    distance: Math.round(primaryRoute.distance),
+                    duration: Math.max(1, Math.round(primaryRoute.duration / 60)),
+                    elevGain: 0,
+                    elevLoss: 0,
+                });
+            } else {
+                setRouteGeometry([start, ...waypoints.map((w) => w.coordinate), end]);
+            }
+
             if (cameraRef.current) {
+                const midLng = (start[0] + end[0]) / 2;
+                const midLat = (start[1] + end[1]) / 2;
                 cameraRef.current.setCamera({
-                    centerCoordinate: coords,
+                    centerCoordinate: [midLng, midLat],
                     zoomLevel: 15,
-                    animationDuration: 800,
+                    animationDuration: 900,
                 });
             }
+
+            setScreenState('ROUTE_ACTIVE');
         } catch (error) {
-            console.log('Lỗi định vị:', error);
+            console.log('Route calculation error:', error);
+            setRouteGeometry([start, ...waypoints.map((w) => w.coordinate), end]);
+            setScreenState('ROUTE_ACTIVE');
+        } finally {
+            setIsCalculatingRoute(false);
+            setSelectedPin(null);
         }
     };
 
-    // Tọa độ tuyến đường mẫu (A -> 1 -> 2 -> 3 -> B)
-    const routeCoordinates: WaypointPoint[] = [
-        { latitude: 10.8250, longitude: 106.6860, label: 'A' },
-        { latitude: 10.8238, longitude: 106.6870, label: '1' },
-        { latitude: 10.8225, longitude: 106.6880, label: '2' },
-        { latitude: 10.8212, longitude: 106.6890, label: '3' },
-        { latitude: 10.8200, longitude: 106.6898, label: 'B' },
-    ];
-
     const handleMapPress = (e: any) => {
+        const coords = e?.geometry?.coordinates;
+        const clickedLngLat: [number, number] = coords || [106.6882, 10.8225];
+
         if (screenState === 'ROUTE_ACTIVE') {
+            setSelectedPin(clickedLngLat);
             setScreenState('WAYPOINT_PANEL');
             return;
         }
 
-        const coords = e?.geometry?.coordinates;
-        if (coords) {
-            setSelectedPin({ longitude: coords[0], latitude: coords[1] });
-        } else {
-            setSelectedPin({ latitude: 10.8218, longitude: 106.6885 });
-        }
+        setSelectedPin(clickedLngLat);
         setScreenState('PIN_SELECTED');
     };
 
     const handleSetStartPoint = () => {
-        setStartLocation('Vị trí hiện tại của bạn');
+        if (!selectedPin) return;
+        const newStart: WaypointItem = {
+            id: 'point-a',
+            coordinate: selectedPin,
+            label: 'A',
+        };
+        setStartPoint(newStart);
+        setStartLocationText('Selected location');
         setSelectedPin(null);
-        if (destination) {
-            setScreenState('ROUTE_ACTIVE');
+
+        if (destinationPoint) {
+            generateRoute(newStart.coordinate, destinationPoint.coordinate, waypointsList);
         } else {
             setScreenState('INITIAL');
         }
     };
 
     const handleSetDestination = () => {
-        setDestination('Điểm đến đã chọn');
-        setSelectedPin(null);
-        setScreenState('ROUTE_ACTIVE');
+        if (!selectedPin) return;
+
+        const effectiveStart = startPoint?.coordinate || userCoords || [106.6882, 10.8225];
+        if (!startPoint) {
+            setStartPoint({
+                id: 'point-a',
+                coordinate: effectiveStart,
+                label: 'A',
+            });
+        }
+
+        const newEnd: WaypointItem = {
+            id: 'point-b',
+            coordinate: selectedPin,
+            label: 'B',
+        };
+        setDestinationPoint(newEnd);
+        setDestinationText('Selected destination');
+
+        generateRoute(effectiveStart, newEnd.coordinate, waypointsList);
+    };
+
+    const handleAddWaypoint = () => {
+        if (!selectedPin || !startPoint || !destinationPoint) return;
+
+        const newWaypoint: WaypointItem = {
+            id: `wp-${Date.now()}`,
+            coordinate: selectedPin,
+            label: `${waypointsList.length + 1}`,
+        };
+
+        const updatedWaypoints = [...waypointsList, newWaypoint];
+        setWaypointsList(updatedWaypoints);
+        generateRoute(startPoint.coordinate, destinationPoint.coordinate, updatedWaypoints);
     };
 
     const handleResetRoute = () => {
-        setStartLocation('');
-        setDestination('');
+        setStartLocationText('Current location');
+        setDestinationText('');
+        setDestinationPoint(null);
+        setWaypointsList([]);
+        setRouteGeometry([]);
         setSelectedPin(null);
         setScreenState('INITIAL');
         setIsMoreMenuOpen(false);
+
+        if (userCoords) {
+            setStartPoint({
+                id: 'point-a',
+                coordinate: userCoords,
+                label: 'A',
+            });
+            if (cameraRef.current) {
+                cameraRef.current.setCamera({
+                    centerCoordinate: userCoords,
+                    zoomLevel: 16,
+                    animationDuration: 800,
+                });
+            }
+        }
+    };
+
+    const handleCenterOnUser = async () => {
+        try {
+            let location = await Location.getCurrentPositionAsync({
+                accuracy: Location.Accuracy.High,
+            });
+            const coords: [number, number] = [location.coords.longitude, location.coords.latitude];
+            setUserCoords(coords);
+            setCenterLat(location.coords.latitude);
+            if (cameraRef.current) {
+                cameraRef.current.setCamera({
+                    centerCoordinate: coords,
+                    zoomLevel: 16.5,
+                    animationDuration: 800,
+                });
+            }
+        } catch (error) {
+            console.log('Location error:', error);
+        }
     };
 
     return (
         <View style={styles.container}>
-            {/* ================= MAPBOX VIEW ================= */}
             <Mapbox.MapView
                 style={StyleSheet.absoluteFill}
                 styleURL={Mapbox.StyleURL.Outdoors}
                 onPress={handleMapPress}
+                onCameraChanged={handleCameraChanged}
+                onRegionDidChange={handleCameraChanged}
                 logoEnabled={false}
                 attributionEnabled={false}
                 compassEnabled={false}
+                scaleBarEnabled={false}
             >
                 <Mapbox.Camera
                     ref={cameraRef}
-                    zoomLevel={14}
-                    centerCoordinate={userCoords}
+                    zoomLevel={16}
+                    centerCoordinate={userCoords || [106.6882, 10.8225]}
                 />
 
-                <Mapbox.UserLocation visible={true} compassEnabled={true} />
+                <Mapbox.UserLocation visible={true} androidRenderMode="compass" />
 
-                {/* Ghim vị trí được chạm chọn trên bản đồ */}
                 {selectedPin && (
-                    <Mapbox.PointAnnotation
-                        id="selected-pin"
-                        coordinate={[selectedPin.longitude, selectedPin.latitude]}
-                    >
+                    <Mapbox.PointAnnotation id="selected-pin" coordinate={selectedPin}>
                         <View style={styles.redPinMarker}>
-                            <Octicons name="location" size={28} color="#EF4444" />
+                            <Octicons name="location" size={32} color="#EF4444" />
                         </View>
                     </Mapbox.PointAnnotation>
                 )}
 
-                {/* Đường đi & Waypoints khi kích hoạt Route */}
-                {screenState === 'ROUTE_ACTIVE' && (
-                    <>
-                        <Mapbox.ShapeSource
-                            id="routeSource"
-                            shape={{
-                                type: 'Feature',
-                                geometry: {
-                                    type: 'LineString',
-                                    coordinates: routeCoordinates.map(pt => [pt.longitude, pt.latitude]),
-                                },
-                                properties: {},
-                            }}
-                        >
-                            <Mapbox.LineLayer
-                                id="routeLine"
-                                style={{
-                                    lineColor: '#2563EB',
-                                    lineWidth: 5,
-                                    lineCap: 'round',
-                                    lineJoin: 'round',
-                                }}
-                            />
-                        </Mapbox.ShapeSource>
+                {startPoint && (
+                    <Mapbox.PointAnnotation id="point-a-marker" coordinate={startPoint.coordinate}>
+                        <View style={[styles.waypointBadge, { backgroundColor: '#bee8ff' }]}>
+                            <Text style={[styles.waypointBadgeText, { color: '#0F172A' }]}>A</Text>
+                        </View>
+                    </Mapbox.PointAnnotation>
+                )}
 
-                        {routeCoordinates.map((pt, index) => (
-                            <Mapbox.PointAnnotation
-                                key={`waypoint-${index}`}
-                                id={`waypoint-${index}`}
-                                coordinate={[pt.longitude, pt.latitude]}
-                            >
-                                <View
-                                    style={[
-                                        styles.waypointBadge,
-                                        pt.label === 'A' && { backgroundColor: '#48752C' },
-                                        pt.label === 'B' && { backgroundColor: '#C85213' },
-                                    ]}
-                                >
-                                    <Text style={styles.waypointBadgeText}>{pt.label}</Text>
-                                </View>
-                            </Mapbox.PointAnnotation>
-                        ))}
-                    </>
+                {destinationPoint && (
+                    <Mapbox.PointAnnotation id="point-b-marker" coordinate={destinationPoint.coordinate}>
+                        <View style={[styles.waypointBadge, { backgroundColor: '#f6eab2' }]}>
+                            <Text style={[styles.waypointBadgeText, { color: '#0F172A' }]}>B</Text>
+                        </View>
+                    </Mapbox.PointAnnotation>
+                )}
+
+                {waypointsList.map((wp) => (
+                    <Mapbox.PointAnnotation key={wp.id} id={wp.id} coordinate={wp.coordinate}>
+                        <View style={[styles.waypointBadge, { backgroundColor: '#0F172A' }]}>
+                            <Text style={styles.waypointBadgeText}>{wp.label}</Text>
+                        </View>
+                    </Mapbox.PointAnnotation>
+                ))}
+
+                {routeGeometry.length > 0 && (
+                    <Mapbox.ShapeSource
+                        id="routeSource"
+                        shape={{
+                            type: 'Feature',
+                            geometry: {
+                                type: 'LineString',
+                                coordinates: routeGeometry,
+                            },
+                            properties: {},
+                        }}
+                    >
+                        <Mapbox.LineLayer
+                            id="routeLine"
+                            style={{
+                                lineColor: '#2563EB',
+                                lineWidth: 6,
+                                lineCap: 'round',
+                                lineJoin: 'round',
+                            }}
+                        />
+                    </Mapbox.ShapeSource>
                 )}
             </Mapbox.MapView>
 
-            {/* ================= OVERLAY UI ================= */}
-            <SafeAreaView style={styles.overlayContainer} pointerEvents="box-none">
-                {/* 1. TOP FLOATING BUTTONS */}
-                <View style={styles.topRow}>
-                    <View style={styles.topLeftGroup}>
-                        <TouchableOpacity style={styles.circleBtn} activeOpacity={0.8}>
-                            <Octicons name="gear" size={20} color="#0F172A" />
+            {isCalculatingRoute && (
+                <View style={styles.calculatingOverlay}>
+                    <ActivityIndicator size="large" color="#2563EB" />
+                    <Text style={styles.calculatingText}>Calculating route...</Text>
+                </View>
+            )}
+
+            {/* OVERLAY UI */}
+            <View style={styles.overlayContainer} pointerEvents="box-none">
+                {/* 1. TOP HEADER: Back button bên trái, Search & Save bên phải */}
+                <View
+                    style={[
+                        styles.topRow,
+                        { paddingTop: insets.top + (Platform.OS === 'android' ? 12 : 6) },
+                    ]}
+                    pointerEvents="box-none"
+                >
+                    <View style={styles.topLeftCol} pointerEvents="box-none">
+                        <TouchableOpacity
+                            style={styles.circleBtn}
+                            activeOpacity={0.8}
+                            onPress={() => router.back()}
+                        >
+                            <Octicons name="chevron-left" size={24} color="#0F172A" />
                         </TouchableOpacity>
 
-                        <TouchableOpacity style={styles.circleBtn} activeOpacity={0.8}>
-                            <Octicons name="person" size={20} color="#EA580C" />
-                        </TouchableOpacity>
+                        {/* THANH TỶ LỆ CHỮ L: KHÔNG NỀN, KHÔNG ĐỔ BÓNG */}
+                        <View style={styles.scaleLContainer} pointerEvents="none">
+                            <Text style={[styles.scaleLText, { width: scaleBarData.width }]}>
+                                {scaleBarData.text}
+                            </Text>
+                            <View
+                                style={[
+                                    styles.scaleLShapeRight,
+                                    { width: scaleBarData.width },
+                                ]}
+                            />
+                        </View>
                     </View>
 
-                    <View style={styles.topRightGroup}>
+                    <View style={styles.topRightRow} pointerEvents="box-none">
+                        <TouchableOpacity
+                            style={styles.circleBtn}
+                            activeOpacity={0.8}
+                            onPress={() => {
+                                // Logic mở modal / trang tìm kiếm địa điểm
+                            }}
+                        >
+                            <Octicons name="search" size={20} color="#0F172A" />
+                        </TouchableOpacity>
+
                         {screenState === 'ROUTE_ACTIVE' && (
                             <TouchableOpacity
                                 style={styles.saveRouteBtn}
@@ -248,228 +447,235 @@ export default function MakeARouteScreen() {
                                 <Octicons name="chevron-down" size={16} color="#FFFFFF" />
                             </TouchableOpacity>
                         )}
+                    </View>
+                </View>
+
+                {/* 2. BOTTOM SECTION: Nút ba chấm bên trái, nút GPS bên phải */}
+                <View
+                    style={[
+                        styles.bottomSection,
+                        { paddingBottom: Math.max(insets.bottom, 16) },
+                    ]}
+                    pointerEvents="box-none"
+                >
+                    <View style={styles.controlsRow} pointerEvents="box-none">
+                        <TouchableOpacity
+                            style={styles.circleBtn}
+                            activeOpacity={0.8}
+                            onPress={() => setIsMoreMenuOpen(true)}
+                        >
+                            <Octicons name="kebab-horizontal" size={20} color="#0F172A" />
+                        </TouchableOpacity>
 
                         <TouchableOpacity
                             style={styles.circleBtn}
                             activeOpacity={0.8}
-                            onPress={() => router.back()}
+                            onPress={handleCenterOnUser}
                         >
-                            <Octicons name="x" size={22} color="#0F172A" />
+                            <Octicons name="location" size={20} color="#0284C7" />
                         </TouchableOpacity>
                     </View>
-                </View>
 
-                {/* 2. RIGHT FLOATING BUTTONS */}
-                <View style={styles.rightFloatCol}>
-                    <TouchableOpacity style={styles.circleBtn} activeOpacity={0.8}>
-                        <Octicons name="search" size={20} color="#0F172A" />
-                    </TouchableOpacity>
-
-                    {/* Nút định vị vị trí thực tế của người dùng */}
-                    <TouchableOpacity
-                        style={styles.circleBtn}
-                        activeOpacity={0.8}
-                        onPress={handleCenterOnUser}
+                    {/* Card nổi màu nền #f5f4f7: Chặn sự kiện touch lọt xuống map */}
+                    <View
+                        style={styles.floatingCardContainer}
+                        pointerEvents="auto"
+                        onStartShouldSetResponder={() => true}
                     >
-                        <Octicons name="location" size={20} color="#0284C7" />
-                    </TouchableOpacity>
+                        {screenState === 'INITIAL' && (
+                            <View style={styles.cardContentBox}>
+                                <Text style={styles.sheetTitle}>
+                                    Tap the map or search a place to start planning
+                                </Text>
 
-                    <TouchableOpacity style={styles.circleBtn} activeOpacity={0.8}>
-                        <Octicons name="stack" size={20} color="#0F172A" />
-                    </TouchableOpacity>
-                </View>
+                                <View style={styles.inputsWrapper}>
+                                    <View style={styles.verticalConnector} />
 
-                {/* 3. BOTTOM-LEFT MENU BUTTON (...) */}
-                <View style={styles.bottomLeftFloat}>
-                    <TouchableOpacity
-                        style={styles.circleBtn}
-                        activeOpacity={0.8}
-                        onPress={() => setIsMoreMenuOpen(true)}
-                    >
-                        <Octicons name="kebab-horizontal" size={20} color="#0F172A" />
-                    </TouchableOpacity>
-                </View>
-
-                {/* 4. BOTTOM SHEET PANEL */}
-                <View style={styles.bottomSheetContainer}>
-                    <View style={styles.handleBar} />
-
-                    {screenState === 'INITIAL' && (
-                        <>
-                            <Text style={styles.sheetTitle}>
-                                Tap the map or search a place to start planning
-                            </Text>
-
-                            <View style={styles.inputsWrapper}>
-                                <View style={styles.verticalConnector} />
-
-                                <View style={styles.inputRowContainer}>
-                                    <View style={[styles.badgeCircle, { backgroundColor: '#48752C' }]}>
-                                        <Text style={styles.badgeText}>A</Text>
+                                    {/* Ô nhập điểm A */}
+                                    <View style={styles.inputRowContainer}>
+                                        <View style={[styles.badgeCircle, { backgroundColor: '#bee8ff' }]}>
+                                            <Text style={[styles.badgeText, { color: '#0F172A' }]}>A</Text>
+                                        </View>
+                                        <TextInput
+                                            style={styles.inputField}
+                                            value={startLocationText}
+                                            onChangeText={setStartLocationText}
+                                            placeholder="Enter starting point"
+                                            placeholderTextColor="#94A3B8"
+                                        />
+                                        {startLocationText.length > 0 && (
+                                            <TouchableOpacity
+                                                style={styles.clearBtn}
+                                                onPress={() => setStartLocationText('')}
+                                            >
+                                                <Octicons name="x" size={16} color="#64748B" />
+                                            </TouchableOpacity>
+                                        )}
                                     </View>
-                                    <TextInput
-                                        style={styles.inputField}
-                                        value={startLocation}
-                                        onChangeText={setStartLocation}
-                                        placeholder="Enter starting point"
-                                        placeholderTextColor="#94A3B8"
-                                    />
-                                    {startLocation.length > 0 && (
-                                        <TouchableOpacity onPress={() => setStartLocation('')}>
-                                            <Octicons name="x" size={18} color="#64748B" />
-                                        </TouchableOpacity>
-                                    )}
+
+                                    {/* Ô nhập điểm B */}
+                                    <View style={styles.inputRowContainer}>
+                                        <View style={[styles.badgeCircle, { backgroundColor: '#f6eab2' }]}>
+                                            <Text style={[styles.badgeText, { color: '#0F172A' }]}>B</Text>
+                                        </View>
+                                        <TextInput
+                                            style={[styles.inputField, !destinationText && styles.inputFieldPlaceholder]}
+                                            value={destinationText}
+                                            placeholder="Tap map to choose destination"
+                                            placeholderTextColor="#94A3B8"
+                                            editable={false}
+                                        />
+                                    </View>
                                 </View>
+                            </View>
+                        )}
 
-                                <View style={styles.inputRowContainer}>
-                                    <View style={[styles.badgeCircle, { backgroundColor: '#C85213' }]}>
-                                        <Text style={styles.badgeText}>B</Text>
+                        {screenState === 'PIN_SELECTED' && (
+                            <View style={styles.pinSelectedContent}>
+                                <View style={styles.pinHeaderRow}>
+                                    <View style={styles.pinInfoCol}>
+                                        <Text style={styles.pinInfoTitle}>Selected Location</Text>
+                                        <Text style={styles.pinInfoSubtitle}>
+                                            Tap button below to set as start or destination
+                                        </Text>
                                     </View>
-                                    <TextInput
-                                        style={[styles.inputField, !destination && styles.inputFieldPlaceholder]}
-                                        value={destination}
-                                        onChangeText={(val) => {
-                                            setDestination(val);
-                                            if (val.trim().length > 2) setScreenState('ROUTE_ACTIVE');
+                                    <TouchableOpacity
+                                        style={styles.closeCardBtn}
+                                        onPress={() => {
+                                            setSelectedPin(null);
+                                            setScreenState(routeGeometry.length > 0 ? 'ROUTE_ACTIVE' : 'INITIAL');
                                         }}
-                                        placeholder="Enter Destination"
-                                        placeholderTextColor="#855B32"
-                                    />
+                                    >
+                                        <Octicons name="x" size={18} color="#0F172A" />
+                                    </TouchableOpacity>
+                                </View>
+
+                                <View style={styles.pinActionButtonsRow}>
+                                    <TouchableOpacity
+                                        style={styles.pinPrimaryBtn}
+                                        activeOpacity={0.8}
+                                        onPress={handleSetStartPoint}
+                                    >
+                                        <View style={[styles.badgeCircleSmall, { backgroundColor: '#bee8ff' }]}>
+                                            <Text style={[styles.badgeTextSmall, { color: '#0F172A' }]}>A</Text>
+                                        </View>
+                                        <Text style={styles.pinBtnText}>Start here</Text>
+                                    </TouchableOpacity>
+
+                                    <TouchableOpacity
+                                        style={styles.pinPrimaryBtn}
+                                        activeOpacity={0.8}
+                                        onPress={handleSetDestination}
+                                    >
+                                        <View style={[styles.badgeCircleSmall, { backgroundColor: '#f6eab2' }]}>
+                                            <Text style={[styles.badgeTextSmall, { color: '#0F172A' }]}>B</Text>
+                                        </View>
+                                        <Text style={styles.pinBtnText}>Route to here</Text>
+                                    </TouchableOpacity>
                                 </View>
                             </View>
-                        </>
-                    )}
+                        )}
 
-                    {screenState === 'PIN_SELECTED' && (
-                        <View style={styles.pinSelectedContent}>
-                            <View style={styles.pinHeaderRow}>
-                                <TouchableOpacity
-                                    style={styles.closeCardBtn}
-                                    onPress={() => setScreenState('INITIAL')}
-                                >
-                                    <Octicons name="x" size={18} color="#0F172A" />
-                                </TouchableOpacity>
-                            </View>
-
-                            <View style={styles.pinActionButtonsRow}>
-                                <TouchableOpacity
-                                    style={styles.pinPrimaryBtn}
-                                    activeOpacity={0.8}
-                                    onPress={handleSetStartPoint}
-                                >
-                                    <View style={[styles.badgeCircleSmall, { backgroundColor: '#48752C' }]}>
-                                        <Text style={styles.badgeTextSmall}>A</Text>
+                        {screenState === 'WAYPOINT_PANEL' && (
+                            <View style={styles.waypointPanelContent}>
+                                <View style={styles.waypointTopRow}>
+                                    <View>
+                                        <Text style={styles.waypointTitle}>Waypoint</Text>
+                                        <Text style={styles.waypointDistance}>Add intermediate stop</Text>
                                     </View>
-                                    <Text style={styles.pinBtnText}>Start here</Text>
-                                </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={styles.closeCardBtn}
+                                        onPress={() => {
+                                            setSelectedPin(null);
+                                            setScreenState('ROUTE_ACTIVE');
+                                        }}
+                                    >
+                                        <Octicons name="x" size={18} color="#0F172A" />
+                                    </TouchableOpacity>
+                                </View>
 
-                                <TouchableOpacity
-                                    style={styles.pinPrimaryBtn}
-                                    activeOpacity={0.8}
-                                    onPress={handleSetDestination}
-                                >
-                                    <View style={[styles.badgeCircleSmall, { backgroundColor: '#C85213' }]}>
-                                        <Text style={styles.badgeTextSmall}>B</Text>
-                                    </View>
-                                    <Text style={styles.pinBtnText}>Route to here</Text>
-                                </TouchableOpacity>
+                                <View style={styles.radioOptionsRow}>
+                                    <TouchableOpacity
+                                        style={styles.radioItem}
+                                        onPress={() => setWaypointMode('end')}
+                                    >
+                                        <View style={[styles.radioCircle, waypointMode === 'end' && styles.radioCircleSelected]} />
+                                        <Text style={styles.radioLabel}>Add to end</Text>
+                                    </TouchableOpacity>
+
+                                    <TouchableOpacity
+                                        style={styles.radioItem}
+                                        onPress={() => setWaypointMode('along')}
+                                    >
+                                        <View style={[styles.radioCircle, waypointMode === 'along' && styles.radioCircleSelected]} />
+                                        <Text style={styles.radioLabel}>Add along the way</Text>
+                                    </TouchableOpacity>
+                                </View>
+
+                                <View style={styles.waypointFooterRow}>
+                                    <TouchableOpacity
+                                        style={styles.offGridToggle}
+                                        activeOpacity={0.8}
+                                        onPress={() => setIsOffGrid(!isOffGrid)}
+                                    >
+                                        <View style={[styles.toggleTrack, isOffGrid && styles.toggleTrackActive]}>
+                                            <View style={[styles.toggleThumb, isOffGrid && styles.toggleThumbActive]} />
+                                        </View>
+                                        <Text style={styles.toggleLabel}>Off-grid</Text>
+                                    </TouchableOpacity>
+
+                                    <TouchableOpacity
+                                        style={styles.addRouteConfirmBtn}
+                                        activeOpacity={0.85}
+                                        onPress={handleAddWaypoint}
+                                    >
+                                        <Octicons name="plus" size={16} color="#FFFFFF" />
+                                        <Text style={styles.addRouteConfirmText}>Add to route</Text>
+                                    </TouchableOpacity>
+                                </View>
                             </View>
-                        </View>
-                    )}
+                        )}
 
-                    {screenState === 'WAYPOINT_PANEL' && (
-                        <View style={styles.waypointPanelContent}>
-                            <View style={styles.waypointTopRow}>
-                                <View>
-                                    <Text style={styles.waypointTitle}>Waypoint</Text>
-                                    <Text style={styles.waypointDistance}>427 m from you</Text>
-                                    <Text style={styles.waypointAddress} numberOfLines={1}>
-                                        📍 Vị trí điểm dừng trung gian
+                        {screenState === 'ROUTE_ACTIVE' && (
+                            <View style={styles.statsContainer}>
+                                <View style={styles.statCol}>
+                                    <Text style={styles.statValue}>
+                                        {routeStats.distance >= 1000
+                                            ? (routeStats.distance / 1000).toFixed(1)
+                                            : routeStats.distance}
+                                        <Text style={styles.statUnit}>
+                                            {routeStats.distance >= 1000 ? ' km' : ' m'}
+                                        </Text>
                                     </Text>
+                                    <Text style={styles.statLabel}>Distance</Text>
                                 </View>
-                                <TouchableOpacity
-                                    style={styles.closeCardBtn}
-                                    onPress={() => setScreenState('ROUTE_ACTIVE')}
-                                >
-                                    <Octicons name="x" size={18} color="#0F172A" />
-                                </TouchableOpacity>
+
+                                <View style={styles.statCol}>
+                                    <Text style={styles.statValue}>
+                                        {routeStats.duration}
+                                        <Text style={styles.statUnit}> m</Text>
+                                    </Text>
+                                    <Text style={styles.statLabel}>Est. time</Text>
+                                </View>
+
+                                <View style={styles.statCol}>
+                                    <Text style={styles.statValue}>
+                                        0 <Text style={styles.statUnit}>m</Text>
+                                    </Text>
+                                    <Text style={styles.statLabel}>Elev. gain</Text>
+                                </View>
+
+                                <View style={styles.statCol}>
+                                    <Text style={styles.statValue}>
+                                        0 <Text style={styles.statUnit}>m</Text>
+                                    </Text>
+                                    <Text style={styles.statLabel}>Elev. loss</Text>
+                                </View>
                             </View>
-
-                            <View style={styles.radioOptionsRow}>
-                                <TouchableOpacity
-                                    style={styles.radioItem}
-                                    onPress={() => setWaypointMode('end')}
-                                >
-                                    <View style={[styles.radioCircle, waypointMode === 'end' && styles.radioCircleSelected]} />
-                                    <Text style={styles.radioLabel}>Add to end</Text>
-                                </TouchableOpacity>
-
-                                <TouchableOpacity
-                                    style={styles.radioItem}
-                                    onPress={() => setWaypointMode('along')}
-                                >
-                                    <View style={[styles.radioCircle, waypointMode === 'along' && styles.radioCircleSelected]} />
-                                    <Text style={styles.radioLabel}>Add along the way</Text>
-                                </TouchableOpacity>
-                            </View>
-
-                            <View style={styles.waypointFooterRow}>
-                                <TouchableOpacity
-                                    style={styles.offGridToggle}
-                                    activeOpacity={0.8}
-                                    onPress={() => setIsOffGrid(!isOffGrid)}
-                                >
-                                    <View style={[styles.toggleTrack, isOffGrid && styles.toggleTrackActive]}>
-                                        <View style={[styles.toggleThumb, isOffGrid && styles.toggleThumbActive]} />
-                                    </View>
-                                    <Text style={styles.toggleLabel}>Off-grid</Text>
-                                </TouchableOpacity>
-
-                                <TouchableOpacity
-                                    style={styles.addRouteConfirmBtn}
-                                    activeOpacity={0.85}
-                                    onPress={() => setScreenState('ROUTE_ACTIVE')}
-                                >
-                                    <Octicons name="plus" size={16} color="#FFFFFF" />
-                                    <Text style={styles.addRouteConfirmText}>Add to route</Text>
-                                </TouchableOpacity>
-                            </View>
-                        </View>
-                    )}
-
-                    {screenState === 'ROUTE_ACTIVE' && (
-                        <View style={styles.statsContainer}>
-                            <View style={styles.statCol}>
-                                <Text style={styles.statValue}>
-                                    386 <Text style={styles.statUnit}>m</Text>
-                                </Text>
-                                <Text style={styles.statLabel}>Distance</Text>
-                            </View>
-
-                            <View style={styles.statCol}>
-                                <Text style={styles.statValue}>
-                                    6<Text style={styles.statUnit}>m</Text>
-                                </Text>
-                                <Text style={styles.statLabel}>Est. time</Text>
-                            </View>
-
-                            <View style={styles.statCol}>
-                                <Text style={styles.statValue}>
-                                    0 <Text style={styles.statUnit}>m</Text>
-                                </Text>
-                                <Text style={styles.statLabel}>Elev. gain</Text>
-                            </View>
-
-                            <View style={styles.statCol}>
-                                <Text style={styles.statValue}>
-                                    0 <Text style={styles.statUnit}>m</Text>
-                                </Text>
-                                <Text style={styles.statLabel}>Elev. loss</Text>
-                            </View>
-                        </View>
-                    )}
+                        )}
+                    </View>
                 </View>
-            </SafeAreaView>
+            </View>
 
             <Modal visible={isSaveMenuOpen} transparent animationType="fade" onRequestClose={() => setIsSaveMenuOpen(false)}>
                 <TouchableWithoutFeedback onPress={() => setIsSaveMenuOpen(false)}>
@@ -530,30 +736,53 @@ const styles = StyleSheet.create({
         backgroundColor: '#E2E8F0',
     },
     overlayContainer: {
-        flex: 1,
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
         justifyContent: 'space-between',
+    },
+    calculatingOverlay: {
+        position: 'absolute',
+        top: '40%',
+        alignSelf: 'center',
+        backgroundColor: 'rgba(15, 23, 42, 0.85)',
+        paddingHorizontal: 20,
+        paddingVertical: 14,
+        borderRadius: 16,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 12,
+        zIndex: 99,
+    },
+    calculatingText: {
+        color: '#FFFFFF',
+        fontFamily: 'GoogleSans-Medium',
+        fontSize: 14,
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     topRow: {
         flexDirection: 'row',
-        alignItems: 'center',
+        alignItems: 'flex-start',
         justifyContent: 'space-between',
         paddingHorizontal: 16,
-        paddingTop: Platform.OS === 'android' ? 12 : 0,
     },
-    topLeftGroup: {
+    topLeftCol: {
+        alignItems: 'flex-start',
+    },
+    topRightRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 12,
-    },
-    topRightGroup: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 12,
+        gap: 10,
     },
     saveRouteBtn: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#4D6B18',
+        justifyContent: 'center',
+        backgroundColor: '#207bfb',
         paddingHorizontal: 18,
         paddingVertical: 10,
         borderRadius: 24,
@@ -563,6 +792,8 @@ const styles = StyleSheet.create({
         fontFamily: 'GoogleSans-Bold',
         fontSize: 15,
         color: '#FFFFFF',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     circleBtn: {
         width: 48,
@@ -571,82 +802,94 @@ const styles = StyleSheet.create({
         backgroundColor: '#FFFFFF',
         justifyContent: 'center',
         alignItems: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.12,
-        shadowRadius: 6,
-        elevation: 4,
     },
-    rightFloatCol: {
-        position: 'absolute',
-        right: 16,
-        top: 140,
+
+    // Thanh tỷ lệ chữ L
+    scaleLContainer: {
+        marginTop: 8,
+        alignItems: 'flex-end',
+        justifyContent: 'center',
+        backgroundColor: 'transparent',
+    },
+    scaleLText: {
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 11,
+        color: '#0F172A',
+        marginBottom: 2,
+        textAlign: 'right',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
+    },
+    scaleLShapeRight: {
+        height: 8,
+        borderBottomWidth: 2,
+        borderRightWidth: 2,
+        borderColor: '#0F172A',
+        backgroundColor: 'transparent',
+    },
+
+    // Khối đáy
+    bottomSection: {
+        paddingHorizontal: 16,
         gap: 12,
     },
-    bottomLeftFloat: {
-        position: 'absolute',
-        left: 16,
-        bottom: 180,
+    controlsRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
     },
     redPinMarker: {
         alignItems: 'center',
         justifyContent: 'center',
     },
     waypointBadge: {
-        width: 28,
-        height: 28,
-        borderRadius: 14,
+        width: 30,
+        height: 30,
+        borderRadius: 15,
         backgroundColor: '#0F172A',
         justifyContent: 'center',
         alignItems: 'center',
-        borderWidth: 2,
-        borderColor: '#FFFFFF',
     },
     waypointBadgeText: {
         fontFamily: 'GoogleSans-Bold',
-        fontSize: 12,
+        fontSize: 13,
         color: '#FFFFFF',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
-    bottomSheetContainer: {
-        width: SCREEN_WIDTH,
-        backgroundColor: '#FFFFFF',
-        borderTopLeftRadius: 28,
-        borderTopRightRadius: 28,
-        paddingHorizontal: 20,
-        paddingTop: 12,
-        paddingBottom: Platform.OS === 'ios' ? 32 : 24,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: -4 },
-        shadowOpacity: 0.1,
-        shadowRadius: 12,
-        elevation: 10,
+
+    // Card nổi phẳng màu nền #f5f4f7
+    floatingCardContainer: {
+        backgroundColor: '#f5f4f7',
+        borderRadius: 24,
+        overflow: 'hidden',
+        paddingHorizontal: 18,
+        paddingTop: 18,
+        paddingBottom: 20,
     },
-    handleBar: {
-        width: 38,
-        height: 5,
-        borderRadius: 3,
-        backgroundColor: '#CBD5E1',
-        alignSelf: 'center',
-        marginBottom: 16,
+    cardContentBox: {
+        width: '100%',
     },
     sheetTitle: {
         fontFamily: 'GoogleSans-Bold',
         fontSize: 16,
         color: '#0F172A',
-        marginBottom: 20,
+        marginBottom: 16,
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     inputsWrapper: {
         position: 'relative',
         gap: 12,
+        width: '100%',
     },
     verticalConnector: {
         position: 'absolute',
         top: 26,
-        left: 22,
+        left: 21,
         width: 2,
         height: 38,
         backgroundColor: '#CBD5E1',
-        borderStyle: 'dashed',
         zIndex: 1,
     },
     inputRowContainer: {
@@ -654,11 +897,10 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         backgroundColor: '#FFFFFF',
         borderRadius: 9999,
-        borderWidth: 1,
-        borderColor: '#E2E8F0',
         paddingHorizontal: 12,
-        height: 54,
+        height: 52,
         zIndex: 2,
+        width: '100%',
     },
     badgeCircle: {
         width: 32,
@@ -672,43 +914,76 @@ const styles = StyleSheet.create({
         fontFamily: 'GoogleSans-Bold',
         fontSize: 14,
         color: '#FFFFFF',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     inputField: {
         flex: 1,
         fontFamily: 'GoogleSans-Bold',
         fontSize: 15,
-        color: '#0F172A',
+        color: '#26282c',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
+        paddingVertical: 0,
     },
     inputFieldPlaceholder: {
-        color: '#855B32',
+        color: '#94A3B8',
     },
+    clearBtn: {
+        padding: 6,
+    },
+
+    // Khi chọn điểm trên bản đồ
     pinSelectedContent: {
         gap: 16,
+        width: '100%',
     },
     pinHeaderRow: {
         flexDirection: 'row',
-        justifyContent: 'flex-end',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+    },
+    pinInfoCol: {
+        flex: 1,
+        paddingRight: 10,
+    },
+    pinInfoTitle: {
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 18,
+        color: '#0F172A',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
+    },
+    pinInfoSubtitle: {
+        fontFamily: 'GoogleSans-Regular',
+        fontSize: 13,
+        color: '#64748B',
+        marginTop: 4,
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     closeCardBtn: {
         width: 32,
         height: 32,
         borderRadius: 16,
-        backgroundColor: '#F1F5F9',
+        backgroundColor: '#E2E8F0',
         justifyContent: 'center',
         alignItems: 'center',
     },
     pinActionButtonsRow: {
         flexDirection: 'row',
         gap: 12,
+        width: '100%',
     },
     pinPrimaryBtn: {
         flex: 1,
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#F3F2EE',
+        justifyContent: 'center',
+        backgroundColor: '#FFFFFF',
         paddingVertical: 14,
         paddingHorizontal: 16,
-        borderRadius: 24,
+        borderRadius: 20,
         gap: 10,
     },
     badgeCircleSmall: {
@@ -722,14 +997,21 @@ const styles = StyleSheet.create({
         fontFamily: 'GoogleSans-Bold',
         fontSize: 12,
         color: '#FFFFFF',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     pinBtnText: {
         fontFamily: 'GoogleSans-Bold',
         fontSize: 15,
         color: '#0F172A',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
+
+    // Waypoint Panel
     waypointPanelContent: {
-        gap: 16,
+        gap: 14,
+        width: '100%',
     },
     waypointTopRow: {
         flexDirection: 'row',
@@ -740,25 +1022,22 @@ const styles = StyleSheet.create({
         fontFamily: 'GoogleSans-Bold',
         fontSize: 20,
         color: '#0F172A',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     waypointDistance: {
-        fontFamily: 'GoogleSans-Bold',
+        fontFamily: 'GoogleSans-Regular',
         fontSize: 14,
         color: '#64748B',
         marginTop: 2,
-    },
-    waypointAddress: {
-        fontFamily: 'GoogleSans-Regular',
-        fontSize: 13,
-        color: '#94A3B8',
-        marginTop: 4,
-        maxWidth: 280,
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     radioOptionsRow: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        marginVertical: 8,
+        marginVertical: 4,
     },
     radioItem: {
         flexDirection: 'row',
@@ -769,23 +1048,23 @@ const styles = StyleSheet.create({
         width: 20,
         height: 20,
         borderRadius: 10,
-        borderWidth: 2,
-        borderColor: '#94A3B8',
+        backgroundColor: '#E2E8F0',
     },
     radioCircleSelected: {
-        borderColor: '#4D6B18',
-        borderWidth: 6,
+        backgroundColor: '#207bfb',
     },
     radioLabel: {
         fontFamily: 'GoogleSans-Bold',
         fontSize: 14,
         color: '#0F172A',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     waypointFooterRow: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        marginTop: 8,
+        marginTop: 4,
     },
     offGridToggle: {
         flexDirection: 'row',
@@ -800,7 +1079,7 @@ const styles = StyleSheet.create({
         padding: 2,
     },
     toggleTrackActive: {
-        backgroundColor: '#4D6B18',
+        backgroundColor: '#207bfb',
     },
     toggleThumb: {
         width: 20,
@@ -815,46 +1094,63 @@ const styles = StyleSheet.create({
         fontFamily: 'GoogleSans-Bold',
         fontSize: 14,
         color: '#0F172A',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     addRouteConfirmBtn: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#4D6B18',
+        justifyContent: 'center',
+        backgroundColor: '#42444b',
         paddingHorizontal: 20,
         paddingVertical: 12,
-        borderRadius: 24,
+        borderRadius: 20,
         gap: 8,
     },
     addRouteConfirmText: {
         fontFamily: 'GoogleSans-Bold',
         fontSize: 15,
         color: '#FFFFFF',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
+
+    // Active Route Stats
     statsContainer: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-around',
-        paddingVertical: 8,
+        paddingVertical: 6,
+        width: '100%',
     },
     statCol: {
         alignItems: 'center',
+        justifyContent: 'center',
     },
     statValue: {
         fontFamily: 'GoogleSans-Bold',
         fontSize: 22,
         color: '#0F172A',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     statUnit: {
         fontSize: 14,
         fontFamily: 'GoogleSans-Regular',
         color: '#64748B',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     statLabel: {
         fontFamily: 'GoogleSans-Bold',
         fontSize: 12,
         color: '#64748B',
         marginTop: 4,
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
+
+    // Modal
     modalOverlayTopRight: {
         flex: 1,
         backgroundColor: 'rgba(15, 23, 42, 0.2)',
@@ -867,7 +1163,7 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(15, 23, 42, 0.2)',
         justifyContent: 'flex-end',
         alignItems: 'flex-start',
-        paddingBottom: 240,
+        paddingBottom: 220,
         paddingLeft: 16,
     },
     popoverMenu: {
@@ -875,11 +1171,6 @@ const styles = StyleSheet.create({
         backgroundColor: '#FFFFFF',
         borderRadius: 20,
         paddingVertical: 8,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.15,
-        shadowRadius: 12,
-        elevation: 8,
     },
     popoverOptionBtn: {
         paddingHorizontal: 20,
@@ -896,10 +1187,14 @@ const styles = StyleSheet.create({
         fontFamily: 'GoogleSans-Bold',
         fontSize: 15,
         color: '#0F172A',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     popoverOptionText: {
         fontFamily: 'GoogleSans-Medium',
         fontSize: 15,
         color: '#334155',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
 });
