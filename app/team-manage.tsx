@@ -9,7 +9,8 @@ import type {TeamInviteCandidate,MyTeamInvitation} from '../api/services/team/te
 import type {TeamMember} from '../api/types/team';
 
 export default function TeamManageScreen(){
-  const {teamId}=useLocalSearchParams<{teamId?:string}>();
+  const params=useLocalSearchParams<{teamId?:string;id?:string}>();
+  const teamId=params.teamId || params.id;
   const [name,setName]=useState('');const [owner,setOwner]=useState(false);
   const [isMember,setIsMember]=useState(false);const [pendingJoin,setPendingJoin]=useState(false);
   const [members,setMembers]=useState<TeamMember[]>([]);const [requests,setRequests]=useState<TeamJoinRequest[]>([]);

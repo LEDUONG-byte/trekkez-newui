@@ -1,0 +1,45 @@
+<View style={styles.headerContainer}>
+    <View style={styles.headerBar}>
+        <TouchableOpacity
+            style={styles.backBtn}
+            onPress={() => router.back()}
+            activeOpacity={0.7}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+            <Octicons name="chevron-left" size={24} color="#0F172A" />
+        </TouchableOpacity>
+
+        <Text style={styles.headerTitle}>TIÊU_ĐỀ</Text>
+
+        <View style={styles.placeholderRight} />
+    </View>
+</View>
+
+headerContainer: {
+    width: '100%',
+    backgroundColor: '#F8FAFC',
+},
+headerBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    marginBottom: 16,
+},
+headerTitle: {
+    fontFamily: 'GoogleSans-Bold',
+    fontSize: 22,
+    color: '#0F172A',
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+},
+backBtn: {
+    width: 36,
+    height: 36,
+    justifyContent: 'center',
+    alignItems: 'flex-start',
+},
+placeholderRight: {
+    width: 36,
+},

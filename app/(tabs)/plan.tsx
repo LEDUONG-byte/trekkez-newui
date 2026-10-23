@@ -26,56 +26,11 @@ export interface PlanItem {
     id: string;
     title: string;
     isOwnedByYou: boolean;
-    color: string;
     details?: string;
     startDate: string; // Định dạng ISO: YYYY-MM-DD
     createdAt: string; // Định dạng ISO: YYYY-MM-DD
 }
 
-// =====================================================================
-// MOCK DATA (Dễ dàng thay thế bằng dữ liệu từ Database / API)
-// =====================================================================
-const INITIAL_PLANS: PlanItem[] = [
-    {
-        id: 'p1',
-        title: 'Plan A',
-        isOwnedByYou: true,
-        color: '#BAE6FD',
-        details: 'Lịch trình du lịch Đà Lạt 3 ngày 2 đêm cùng bạn bè',
-        startDate: '2026-11-15',
-        createdAt: '2026-08-01',
-    },
-    {
-        id: 'p2',
-        title: 'Plan B',
-        isOwnedByYou: true,
-        color: '#BAE6FD',
-        details: 'Chuyến cắm trại hồ Trị An',
-        startDate: '2026-10-25',
-        createdAt: '2026-09-10',
-    },
-    {
-        id: 'p3',
-        title: 'Plan C',
-        isOwnedByYou: false,
-        color: '#FEF08A',
-        details: 'Phượt Tây Bắc ngắm lúa chín',
-        startDate: '2026-12-01',
-        createdAt: '2026-07-20',
-    },
-];
-
-const INITIAL_ROUTES: PlanItem[] = [
-    {
-        id: 'r1',
-        title: 'route A',
-        isOwnedByYou: true,
-        color: '#A7F3D0',
-        details: 'Lộ trình đạp xe quanh Hồ Tây - 15km',
-        startDate: '2026-10-22',
-        createdAt: '2026-09-15',
-    },
-];
 
 export default function PlanScreen() {
     // -----------------------------------------------------------------
@@ -86,31 +41,24 @@ export default function PlanScreen() {
     const [isLoading, setIsLoading] = useState<boolean>(true);
     const [loadError, setLoadError] = useState('');
     const refresh = useCallback(async () => {
-        setIsLoading(true);
-        setLoadError('');
-        try {
-            const [planResult, routeResult] = await Promise.allSettled([loadPlanCards(), loadRouteCards()]);
-            setPlans(planResult.status === 'fulfilled' ? planResult.value : []);
+        setIsLoading(true); setLoadError('');
+        const [planResult, routeResult] = await Promise.allSettled([loadPlanCards(), loadRouteCards()]);
+        if (planResult.status === 'rejected') {
+            setPlans([]); setRoutes([]);
+            setLoadError(planResult.reason instanceof Error ? planResult.reason.message : String(planResult.reason));
+        } else {
+            setPlans(planResult.value);
             setRoutes(routeResult.status === 'fulfilled' ? routeResult.value : []);
-            const errors: string[] = [];
-            if (planResult.status === 'rejected') {
-                errors.push(`Plan: ${planResult.reason instanceof Error ? planResult.reason.message : String(planResult.reason)}`);
-            }
-            if (routeResult.status === 'rejected') {
-                errors.push(`Route: ${routeResult.reason instanceof Error ? routeResult.reason.message : String(routeResult.reason)}`);
-            }
-            if (errors.length) {
-                console.warn('[TrekkEZ Plan] Partial load:', errors.join(' | '));
-                setLoadError(errors.join(' | '));
-            }
-        } catch (error) {
-            setLoadError(error instanceof Error ? error.message : String(error));
-        } finally { setIsLoading(false); }
+            if (routeResult.status === 'rejected') setLoadError(routeResult.reason instanceof Error ? routeResult.reason.message : String(routeResult.reason));
+        }
+        setIsLoading(false);
     }, []);
     useFocusEffect(useCallback(() => { void refresh(); }, [refresh]));
 
-    const [isSearchActive, setIsSearchActive] = useState(false);
-    const [searchQuery, setSearchQuery] = useState('');
+    // Search States
+    const [isSearchActive, setIsSearchActive] = useState<boolean>(false);
+    const [searchQuery, setSearchQuery] = useState<string>('');
+
     // Navigation & Sort States
     const [subTab, setSubTab] = useState<SubTabType>('PLAN');
     const [planSortBy, setPlanSortBy] = useState<SortOption>('name');
@@ -122,12 +70,23 @@ export default function PlanScreen() {
     const rawList = subTab === 'PLAN' ? plans : routes;
 
     // -----------------------------------------------------------------
-    // COMPUTED & SORTING LOGIC
+    // COMPUTED & SEARCH + SORTING LOGIC
     // -----------------------------------------------------------------
-    const sortedList = useMemo(() => {
+    const filteredAndSortedList = useMemo(() => {
         if (!rawList || rawList.length === 0) return [];
-        const listCopy = [...rawList];
+        let listCopy = [...rawList];
 
+        // Lọc theo từ khóa tìm kiếm (tiêu đề hoặc chi tiết)
+        if (searchQuery.trim()) {
+            const query = searchQuery.trim().toLowerCase();
+            listCopy = listCopy.filter(
+                (item) =>
+                    item.title.toLowerCase().includes(query) ||
+                    (item.details && item.details.toLowerCase().includes(query))
+            );
+        }
+
+        // Sắp xếp danh sách
         switch (currentSortBy) {
             case 'name':
                 return listCopy.sort((a, b) => a.title.localeCompare(b.title));
@@ -142,17 +101,9 @@ export default function PlanScreen() {
             default:
                 return listCopy;
         }
-    }, [rawList, currentSortBy]);
+    }, [rawList, currentSortBy, searchQuery]);
 
-    // Tự động kiểm tra trạng thái rỗng từ dữ liệu thực tế
-    const visibleItems = useMemo(() => {
-        const query = searchQuery.trim().toLocaleLowerCase();
-        return query ? sortedList.filter(item =>
-            item.title.toLocaleLowerCase().includes(query) ||
-            item.details?.toLocaleLowerCase().includes(query)
-        ) : sortedList;
-    }, [sortedList, searchQuery]);
-    const isEmpty = visibleItems.length === 0;
+    const isEmpty = filteredAndSortedList.length === 0;
 
     const handleSelectSort = (option: SortOption) => {
         if (subTab === 'PLAN') {
@@ -163,22 +114,46 @@ export default function PlanScreen() {
         setIsMenuVisible(false);
     };
 
+    const handleCancelSearch = () => {
+        setSearchQuery('');
+        setIsSearchActive(false);
+    };
+
+    // -----------------------------------------------------------------
+    // CHUYỂN HƯỚNG TỚI TRANG QUẢN LÝ
+    // -----------------------------------------------------------------
+    const handleItemPress = (item: PlanItem) => {
+        if (subTab === 'PLAN') {
+            router.push({
+                pathname: '/manage-plan',
+                params: { id: item.id },
+            });
+        } else {
+            router.push({
+                pathname: '/manage-route',
+                params: { id: item.id },
+            });
+        }
+    };
+
     return (
         <SafeAreaView style={styles.container}>
             <ScrollView
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={styles.scrollContent}
             >
-                {/* --- HEADER BAR --- */}
+                {/* --- HEADER TƯƠNG TÁC DÙNG CHUNG SEARCHBARHEADER --- */}
                 <SearchBarHeader
                     title="PLAN"
-                    placeholder={subTab === 'PLAN' ? 'Search plans...' : 'Search routes...'}
+                    placeholder={`Search ${subTab.toLowerCase()} by title, details...`}
                     isSearching={isSearchActive}
                     searchQuery={searchQuery}
                     onSearchQueryChange={setSearchQuery}
                     onStartSearch={() => setIsSearchActive(true)}
-                    onCancelSearch={() => { setIsSearchActive(false); setSearchQuery(''); }}
+                    onCancelSearch={handleCancelSearch}
                 />
+
+                {loadError ? <Text style={{ color: '#B91C1C', marginHorizontal: 20 }} onPress={() => { void refresh(); }}>{loadError} · tap to retry</Text> : null}
 
                 {/* --- ACTION CARDS --- */}
                 <View style={styles.actionCardsRow}>
@@ -232,19 +207,12 @@ export default function PlanScreen() {
 
                 <View style={styles.dashedLine} />
 
-                {/* --- LEGEND & FILTER BAR --- */}
+                {/* --- FILTER BAR --- */}
                 {!isEmpty && (
-                    <View style={styles.legendAndFilterRow}>
-                        <View style={styles.legendContainer}>
-                            <View style={styles.legendItem}>
-                                <View style={[styles.legendColorBox, { backgroundColor: subTab === 'PLAN' ? '#BAE6FD' : '#A7F3D0' }]} />
-                                <Text style={styles.legendText}>owned by you</Text>
-                            </View>
-                            <View style={styles.legendItem}>
-                                <View style={[styles.legendColorBox, { backgroundColor: subTab === 'PLAN' ? '#FEF08A' : '#DDD6FE' }]} />
-                                <Text style={styles.legendText}>owned by someone else</Text>
-                            </View>
-                        </View>
+                    <View style={styles.filterBarRow}>
+                        <Text style={styles.listCountText}>
+                            {filteredAndSortedList.length} {subTab.toLowerCase()}(s)
+                        </Text>
 
                         <TouchableOpacity
                             style={styles.filterBtn}
@@ -256,7 +224,6 @@ export default function PlanScreen() {
                     </View>
                 )}
 
-                {loadError ? <Text style={{ color: '#B91C1C', marginVertical: 12 }} onPress={() => { void refresh(); }}>{loadError} (tap to retry)</Text> : null}
                 {/* --- MAIN CONTENT AREA --- */}
                 {isLoading ? (
                     <View style={styles.loadingContainer}>
@@ -265,35 +232,60 @@ export default function PlanScreen() {
                 ) : isEmpty ? (
                     <View style={styles.emptyContainer}>
                         <View style={styles.sadIconCircle}>
-                            <Octicons name="smiley" size={48} color="#94A3B8" />
+                            <Octicons
+                                name={searchQuery.trim() ? 'search' : 'smiley'}
+                                size={40}
+                                color="#94A3B8"
+                            />
                         </View>
                         <Text style={styles.emptyTitle}>
-                            {searchQuery.trim() ? 'No matching result found' : subTab === 'PLAN' ? 'You currently have no plans !' : 'You currently have no route !'}
+                            {searchQuery.trim()
+                                ? `No ${subTab.toLowerCase()} found`
+                                : subTab === 'PLAN'
+                                    ? 'You currently have no plans !'
+                                    : 'You currently have no route !'}
                         </Text>
                         <Text style={styles.emptySubtitle}>
-                            {subTab === 'PLAN'
-                                ? 'Create a new plan or explore existing plans from the community'
-                                : 'Create a new route or explore existing route from the community'}
+                            {searchQuery.trim()
+                                ? `No results matching "${searchQuery}". Try different keywords.`
+                                : subTab === 'PLAN'
+                                    ? 'Create a new plan or explore existing plans from the community'
+                                    : 'Create a new route or explore existing route from the community'}
                         </Text>
                     </View>
                 ) : (
                     <View style={styles.listContainer}>
-                        {visibleItems.map((item) => (
+                        {filteredAndSortedList.map((item) => (
                             <ExpandableCard
                                 key={item.id}
                                 id={item.id}
                                 title={item.title}
-                                isOwnedByYou={item.isOwnedByYou}
-                                headerColor={item.color}
+                                iconName={subTab === 'PLAN' ? 'bookmark' : 'git-branch'}
+                                isOwnedByYou={true}
+                                headerColor={subTab === 'PLAN' ? '#bee8ff' : '#f6eab2'}
                                 defaultExpanded={false}
-                                onHeaderPress={(id) => router.push({ pathname: subTab === 'PLAN' ? '/manage-plan' : '/manage-route', params: { id } })}
+                                onTitlePress={() => handleItemPress(item)}
                             >
                                 <View style={styles.cardContentWrapper}>
-                                    {item.details ? <Text style={styles.cardDetailText}>{item.details}</Text> : null}
+                                    {item.details ? (
+                                        <Text style={styles.cardDetailText}>{item.details}</Text>
+                                    ) : null}
+
                                     <View style={styles.cardMetaRow}>
-                                        <Text style={styles.cardMetaText}>📅 Khởi hành: {item.startDate || 'Chưa có ngày'}</Text>
-                                        <Text style={styles.cardMetaText}>🕒 Tạo lúc: {item.createdAt || 'Chưa có ngày'}</Text>
+                                        <Text style={styles.cardMetaText}>📅 Khởi hành: {item.startDate}</Text>
+                                        <Text style={styles.cardMetaText}>🕒 Tạo lúc: {item.createdAt}</Text>
                                     </View>
+
+                                    {/* Nút chuyển tới trang quản lý tương ứng */}
+                                    <TouchableOpacity
+                                        style={styles.manageBtn}
+                                        activeOpacity={0.8}
+                                        onPress={() => handleItemPress(item)}
+                                    >
+                                        <Text style={styles.manageBtnText}>
+                                            {subTab === 'PLAN' ? 'Manage plan' : 'Manage route'}
+                                        </Text>
+                                    </TouchableOpacity>
                                 </View>
                             </ExpandableCard>
                         ))}
@@ -370,32 +362,6 @@ const styles = StyleSheet.create({
         paddingTop: 16,
         paddingBottom: 110,
     },
-    headerBar: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        marginBottom: 24,
-    },
-    headerTitle: {
-        fontFamily: 'GoogleSans-Bold',
-        fontSize: 22,
-        color: '#0F172A',
-        includeFontPadding: false,
-        textAlignVertical: 'center',
-    },
-    headerRightBtns: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 12,
-    },
-    circleHeaderBtn: {
-        width: 42,
-        height: 42,
-        borderRadius: 21,
-        backgroundColor: '#FFFFFF',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
     actionCardsRow: {
         flexDirection: 'row',
         gap: 12,
@@ -420,12 +386,16 @@ const styles = StyleSheet.create({
         fontSize: 16,
         color: '#FFFFFF',
         width: '80%',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     createRouteText: {
         fontFamily: 'GoogleSans-Bold',
         fontSize: 16,
         color: '#0F172A',
         width: '80%',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     cardIconBottomRight: {
         position: 'absolute',
@@ -473,28 +443,15 @@ const styles = StyleSheet.create({
         width: '100%',
         marginBottom: 16,
     },
-    legendAndFilterRow: {
+    filterBarRow: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
         marginBottom: 16,
     },
-    legendContainer: {
-        gap: 4,
-    },
-    legendItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-    },
-    legendColorBox: {
-        width: 32,
-        height: 10,
-        borderRadius: 4,
-    },
-    legendText: {
-        fontFamily: 'GoogleSans-Regular',
-        fontSize: 12,
+    listCountText: {
+        fontFamily: 'GoogleSans-Medium',
+        fontSize: 13,
         color: '#64748B',
         includeFontPadding: false,
         textAlignVertical: 'center',
@@ -511,24 +468,45 @@ const styles = StyleSheet.create({
         marginTop: 4,
     },
     cardContentWrapper: {
-        gap: 8,
+        gap: 10,
+        paddingTop: 4,
     },
     cardDetailText: {
         fontFamily: 'GoogleSans-Regular',
         fontSize: 14,
         color: '#334155',
         lineHeight: 20,
+        includeFontPadding: false,
     },
     cardMetaRow: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        marginTop: 6,
+        marginTop: 4,
     },
     cardMetaText: {
         fontFamily: 'GoogleSans-Regular',
         fontSize: 12,
         color: '#64748B',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
+    },
+    manageBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#1E293B',
+        paddingVertical: 10,
+        borderRadius: 10,
+        marginTop: 8,
+        gap: 8,
+    },
+    manageBtnText: {
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 13,
+        color: '#FFFFFF',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     loadingContainer: {
         paddingVertical: 60,
@@ -556,6 +534,8 @@ const styles = StyleSheet.create({
         color: '#334155',
         textAlign: 'center',
         marginBottom: 8,
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     emptySubtitle: {
         fontFamily: 'GoogleSans-Regular',
@@ -563,6 +543,8 @@ const styles = StyleSheet.create({
         color: '#94A3B8',
         textAlign: 'center',
         lineHeight: 20,
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     modalOverlay: {
         flex: 1,
@@ -577,11 +559,6 @@ const styles = StyleSheet.create({
         backgroundColor: '#FFFFFF',
         borderRadius: 16,
         paddingVertical: 4,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.15,
-        shadowRadius: 10,
-        elevation: 6,
     },
     menuOptionBtn: {
         paddingHorizontal: 20,
@@ -607,9 +584,13 @@ const styles = StyleSheet.create({
         fontFamily: 'GoogleSans-Medium',
         fontSize: 14,
         color: '#0F172A',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     menuOptionTextSelected: {
         fontFamily: 'GoogleSans-Bold',
         color: '#0284C7',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
 });

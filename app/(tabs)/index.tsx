@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Octicons } from '@expo/vector-icons';
-import { useFocusEffect, router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { loadExploreFeed, loadFollowingAuthorIds } from '../../api/integration/newui-gateway';
 import { setRemoteCommunityLike, setRemoteCommunitySave } from '../../api/services/community/community-supabase';
 import { setUserFollowing } from '../../api/services/community/social-supabase';
@@ -25,151 +25,95 @@ export type FeedItem =
     | ({ itemType: 'POST'; id: string; authorId?: string; isFollowing?: boolean; authorIdentityVerified?: boolean } & PostCardProps)
     | ({ itemType: 'TEAM'; id: string; isFollowing?: boolean } & TeamPostCardProps);
 
-const MOCK_FEED_ITEMS: FeedItem[] = [
-    {
-        id: '1',
-        itemType: 'POST',
-        avatar: require('../../assets/images/logoW.png'),
-        username: 'cat_lover_99',
-        isFollowing: false,
-        images: [
-            require('../../assets/images/onboarding1.png'),
-            require('../../assets/images/onboarding2.png'),
-        ],
-        tags: ['Đà Lạt', 'Trekking', '12km', 'Camping'],
-        likeCount: 124,
-        commentCount: 18,
-        caption: 'Hành trình săn mây buổi sáng cùng đồng đội cực kỳ chất lượng!',
-    },
-    {
-        id: 'team_1',
-        itemType: 'TEAM',
-        username: 'sixseven_leader',
-        avatar: require('../../assets/images/logoW.png'),
-        teamName: 'Sixseven Team',
-        memberCount: 1,
-        maxMembers: 10,
-        isJoined: false,
-        isFollowing: false,
-        caption: 'Tìm thêm các bạn đồng hành đi chinh phục Bạch Mộc Lương Tử cuối tuần này nhé!',
-    },
-    {
-        id: '2',
-        itemType: 'POST',
-        avatar: require('../../assets/images/logoW.png'),
-        username: 'trekkEZ_official',
-        isFollowing: true,
-        images: [
-            require('../../assets/images/onboarding2.png'),
-        ],
-        tags: ['Tà Năng - Phan Dũng'],
-        likeCount: 512,
-        commentCount: 42,
-        caption: 'Cung đường xinh đẹp nhất mùa mưa này. Đăng ký nhóm ngay tại tab Team!',
-    },
-    {
-        id: 'team_2',
-        itemType: 'TEAM',
-        username: 'ha_giang_lover',
-        avatar: require('../../assets/images/logoW.png'),
-        teamName: 'Mã Pí Lèng Explorers',
-        memberCount: 6,
-        maxMembers: 8,
-        isJoined: true,
-        isFollowing: true,
-        caption: 'Đã đủ nhóm phượt Hà Giang ngắm hoa tam giác mạch.',
-    },
-];
-
 export default function HomeScreen() {
     const insets = useSafeAreaInsets();
     const bottomMargin = Math.max(insets.bottom + 20, 16);
 
     const [subTab, setSubTab] = useState<SubTabType>('EXPLORE');
-    const [isSearchActive, setIsSearchActive] = useState(false);
-    const [searchQuery, setSearchQuery] = useState('');
     const [feedItems, setFeedItems] = useState<FeedItem[]>([]);
     const [followedAuthorIds, setFollowedAuthorIds] = useState<Set<string>>(() => new Set());
     const [busy, setBusy] = useState(true);
     const [feedError, setFeedError] = useState('');
     const [renderVersion, setRenderVersion] = useState(0);
+
+    // Search States
+    const [isSearchActive, setIsSearchActive] = useState<boolean>(false);
+    const [searchQuery, setSearchQuery] = useState<string>('');
+
     const refresh = useCallback(async () => {
         setBusy(true); setFeedError('');
         try {
             const [explore, authorIds] = await Promise.all([loadExploreFeed(), loadFollowingAuthorIds()]);
-            // Follow is a relationship to an AUTHOR (not a post or team card).
-            const next: FeedItem[] = explore.map((p) => ({
-                ...p,
-                isFollowing: p.itemType === 'POST' && Boolean(p.authorId && authorIds.has(p.authorId)),
-            })) as FeedItem[];
-            setFollowedAuthorIds(new Set(authorIds));
-            setFeedItems(next);
+            const next = explore.map((p) => ({ ...p, isFollowing: p.itemType === 'POST' && Boolean(p.authorId && authorIds.has(p.authorId)) })) as FeedItem[];
+            setFeedItems(next); setFollowedAuthorIds(new Set(authorIds)); setRenderVersion((v) => v + 1);
             if (__DEV__) {
                 const namesByOwner = new Map<string, Set<string>>();
                 for (const item of next) {
                     if (item.itemType !== 'POST' || !item.authorId) continue;
                     const labels = namesByOwner.get(item.authorId) ?? new Set<string>();
-                    labels.add(item.username ?? '');
-                    namesByOwner.set(item.authorId, labels);
+                    labels.add(item.username ?? ''); namesByOwner.set(item.authorId, labels);
                 }
                 const inconsistentOwners = [...namesByOwner.values()].filter((labels) => labels.size > 1).length;
-                console.log(`[TrekkEZ Following] Following: ${authorIds.size} user(s); Explore: ${next.filter((p) => p.itemType === 'POST').length} post(s); Following: ${next.filter((p) => p.itemType === 'POST' && p.authorId && authorIds.has(p.authorId) && p.authorIdentityVerified !== false).length} post(s)`);
                 if (inconsistentOwners) console.warn(`[TrekkEZ Following] ${inconsistentOwners} owner_id(s) are displayed using multiple author names. Verify community_posts.owner_id and author against real profiles.`);
             }
-            setRenderVersion((v) => v + 1);
-        } catch (error) {
-            setFeedItems([]);
-            setFollowedAuthorIds(new Set());
-            setFeedError(error instanceof Error ? error.message : String(error));
-        } finally { setBusy(false); }
+        } catch (error) { setFeedItems([]); setFollowedAuthorIds(new Set()); setFeedError(error instanceof Error ? error.message : String(error)); }
+        finally { setBusy(false); }
     }, []);
     useFocusEffect(useCallback(() => { void refresh(); }, [refresh]));
 
     const filteredItems = useMemo(() => {
-        // The Following tab must use authoritative user_follows IDs,
-        // not PostCard's optimistic local "Following" button state.
-        const scope = subTab === 'FOLLOWING'
+        let items = subTab === 'FOLLOWING'
             ? feedItems.filter((item) => item.itemType === 'POST' && Boolean(item.authorId && followedAuthorIds.has(item.authorId) && item.authorIdentityVerified !== false))
             : feedItems;
-        const query = searchQuery.trim().toLocaleLowerCase();
-        if (!query) return scope;
-        return scope.filter((item) =>
-            item.username?.toLocaleLowerCase().includes(query) ||
-            item.caption?.toLocaleLowerCase().includes(query) ||
-            (item.itemType === 'POST' && item.tags?.some((tag) => tag.toLocaleLowerCase().includes(query))) ||
-            (item.itemType === 'TEAM' && item.teamName?.toLocaleLowerCase().includes(query))
-        );
+
+        if (searchQuery.trim()) {
+            const query = searchQuery.trim().toLowerCase();
+            items = items.filter((item) => {
+                const matchUsername = item.username?.toLowerCase().includes(query);
+                const matchCaption = item.caption?.toLowerCase().includes(query);
+                const matchTeamName = item.itemType === 'TEAM' && item.teamName?.toLowerCase().includes(query);
+                const matchTags = item.itemType === 'POST' && item.tags?.some((t) => t.toLowerCase().includes(query));
+
+                return matchUsername || matchCaption || matchTeamName || matchTags;
+            });
+        }
+
+        return items;
     }, [subTab, feedItems, followedAuthorIds, searchQuery]);
 
     const handleToggleFollow = async (item: FeedItem) => {
-        if (item.itemType !== 'POST' || !item.authorId) {
-            setFeedError('Chưa có tài khoản tác giả để theo dõi.'); return;
-        }
-        try {
-            await setUserFollowing(item.authorId, !item.isFollowing);
-            await refresh();
-        } catch (error) { const message = error instanceof Error ? error.message : String(error); await refresh(); setFeedError(message); }
+        if (item.itemType !== 'POST' || !item.authorId) { setFeedError('Không tìm thấy tác giả để theo dõi.'); return; }
+        try { await setUserFollowing(item.authorId, !item.isFollowing); await refresh(); }
+        catch (error) { setFeedError(error instanceof Error ? error.message : String(error)); }
     };
     const handlePostAction = async (item: Extract<FeedItem, { itemType: 'POST' }>, action: 'like' | 'save') => {
-        try {
-            if (action === 'like') await setRemoteCommunityLike(item.id, !item.isLiked);
-            else await setRemoteCommunitySave(item.id, !item.isBookmarked);
-            await refresh();
-        } catch (error) { const message = error instanceof Error ? error.message : String(error); await refresh(); setFeedError(message); }
+        try { if (action === 'like') await setRemoteCommunityLike(item.id, !item.isLiked); else await setRemoteCommunitySave(item.id, !item.isBookmarked); await refresh(); }
+        catch (error) { setFeedError(error instanceof Error ? error.message : String(error)); }
+    };
+
+    const handleCancelSearch = () => {
+        setSearchQuery('');
+        setIsSearchActive(false);
+    };
+
+    const handleCreatePost = () => {
+        router.push('/create-post');
     };
 
     const renderHeader = () => (
         <View style={styles.headerContainer}>
-            <SearchBarHeader
-                title="HOME"
-                placeholder="Search posts, users, tags..."
-                isSearching={isSearchActive}
-                searchQuery={searchQuery}
-                onSearchQueryChange={setSearchQuery}
-                onStartSearch={() => setIsSearchActive(true)}
-                onCancelSearch={() => { setIsSearchActive(false); setSearchQuery(''); }}
-                containerStyle={styles.inlineSearchHeader}
-            />
+            {/* --- SHARED INTERACTIVE SEARCH HEADER --- */}
+            <View style={styles.headerPadding}>
+                <SearchBarHeader
+                    title="HOME"
+                    placeholder="Search posts, users, tags..."
+                    isSearching={isSearchActive}
+                    searchQuery={searchQuery}
+                    onSearchQueryChange={setSearchQuery}
+                    onStartSearch={() => setIsSearchActive(true)}
+                    onCancelSearch={handleCancelSearch}
+                />
+            </View>
 
             <View style={styles.tabToggleRow}>
                 <TouchableOpacity
@@ -220,7 +164,7 @@ export default function HomeScreen() {
                 <View style={styles.cardItemWrapper}>
                     <TeamPostCard
                         {...item}
-                        onFollowPress={() => setFeedError('Team follow is not connected.')}
+                        onFollowPress={() => setFeedError('Theo dõi nhóm chưa được hỗ trợ.')}
                         onPressTeamCard={() => router.push('/(tabs)/team')}
                     />
                 </View>
@@ -229,42 +173,67 @@ export default function HomeScreen() {
 
         return (
             <View style={styles.cardItemWrapper}>
-                    <PostCard
-                        key={`${item.id}-${renderVersion}-${item.isFollowing ? 1 : 0}`}
-                        {...item}
-                        onLikePress={() => { void handlePostAction(item, 'like'); }}
-                        onBookmarkPress={() => { void handlePostAction(item, 'save'); }}
-                        onFollowPress={() => { void handleToggleFollow(item); }}
+                <PostCard
+                    key={`${item.id}-${renderVersion}`}
+                    {...item}
+                    onLikePress={() => { void handlePostAction(item, 'like'); }}
+                    onBookmarkPress={() => { void handlePostAction(item, 'save'); }}
+                    onFollowPress={() => { void handleToggleFollow(item); }}
                     onCommentPress={() => router.push({ pathname: '/comments', params: { postId: item.id } })}
-                    onSharePress={() => { const message = `TrekkEZ: ${item.caption || ''}`; if (Platform.OS === 'web' && typeof navigator !== 'undefined') { void (navigator.share ? navigator.share({text:message}) : navigator.clipboard.writeText(message)).catch(error=>setFeedError(String(error))); } else { void Share.share({message}).catch(error=>setFeedError(String(error))); } }}
+                    onSharePress={() => { const message = `TrekkEZ: ${item.caption || ''}`; if (Platform.OS === 'web' && typeof navigator !== 'undefined') { void (navigator.share ? navigator.share({ text: message }) : navigator.clipboard.writeText(message)).catch((error) => setFeedError(String(error))); } else { void Share.share({ message }).catch((error) => setFeedError(String(error))); } }}
                 />
             </View>
         );
     };
+
+    const renderEmpty = () => (
+        <View style={styles.emptyContainer}>
+            <View style={styles.sadIconCircle}>
+                <Octicons
+                    name={searchQuery.trim() ? 'search' : 'rss'}
+                    size={40}
+                    color="#94A3B8"
+                />
+            </View>
+            <Text style={styles.emptyTitle}>
+                {searchQuery.trim() ? 'No posts found' : 'No posts in this feed'}
+            </Text>
+            <Text style={styles.emptySubtitle}>
+                {searchQuery.trim()
+                    ? `No matching results for "${searchQuery}". Try different keywords.`
+                    : subTab === 'FOLLOWING'
+                        ? 'Follow more explorers to see their updates here.'
+                        : 'Be the first to share your journey with the community!'}
+            </Text>
+        </View>
+    );
 
     return (
         <SafeAreaView style={styles.container}>
             <FlatList
                 refreshing={busy}
                 onRefresh={() => { void refresh(); }}
-                ListEmptyComponent={!busy ? <Text style={{ color: '#64748B', padding: 24 }}>{searchQuery.trim() ? 'Không tìm thấy bài đăng phù hợp.' : 'Không có bài đăng để hiển thị.'}</Text> : null}
                 style={styles.feedList}
                 data={filteredItems}
                 keyExtractor={(item, index) => item.id ?? index.toString()}
-                ListHeaderComponent={renderHeader()}
+                ListHeaderComponent={renderHeader}
                 renderItem={renderFeedItem}
+                ListEmptyComponent={renderEmpty}
                 ItemSeparatorComponent={() => <View style={styles.dashedSeparator} />}
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={styles.listContent}
             />
 
+            {/* --- FAB NÚT CỘNG ĐĂNG BÀI --- */}
             <View style={[styles.fabContainer, { bottom: bottomMargin + 70 }]}>
-                <TouchableOpacity style={styles.fabBtn} activeOpacity={0.85}
-                    onPress={() => router.push('/create-post')}>
+                <TouchableOpacity
+                    style={styles.fabBtn}
+                    activeOpacity={0.85}
+                    onPress={handleCreatePost}
+                >
                     <Octicons name="plus" size={24} color="#FFFFFF" />
                 </TouchableOpacity>
             </View>
-
         </SafeAreaView>
     );
 }
@@ -284,42 +253,12 @@ const styles = StyleSheet.create({
         paddingBottom: 110,
         backgroundColor: '#F8FAFC',
     },
-    inlineSearchHeader: { marginHorizontal: 24 },
     headerContainer: {
         width: '100%',
         backgroundColor: '#F8FAFC',
     },
-    headerBar: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
+    headerPadding: {
         paddingHorizontal: 24,
-        marginBottom: 24,
-    },
-    headerTitle: {
-        fontFamily: 'GoogleSans-Bold',
-        fontSize: 22,
-        color: '#0F172A',
-        includeFontPadding: false,
-        textAlignVertical: 'center',
-    },
-    headerRightBtns: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 12,
-    },
-    circleHeaderBtn: {
-        width: 42,
-        height: 42,
-        borderRadius: 21,
-        backgroundColor: '#FFFFFF',
-        justifyContent: 'center',
-        alignItems: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 4,
-        elevation: 2,
     },
     tabToggleRow: {
         flexDirection: 'row',
@@ -384,38 +323,38 @@ const styles = StyleSheet.create({
         backgroundColor: '#50C1FF',
         justifyContent: 'center',
         alignItems: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.2,
-        shadowRadius: 8,
-        elevation: 10,
     },
-    searchResultRow: {
-        flexDirection: 'row',
+    emptyContainer: {
         alignItems: 'center',
-        backgroundColor: '#FFFFFF',
-        borderRadius: 12,
-        padding: 12,
-        gap: 12,
+        justifyContent: 'center',
+        paddingVertical: 60,
+        paddingHorizontal: 24,
     },
-    searchAvatarPlaceholder: {
-        width: 36,
-        height: 36,
-        borderRadius: 18,
-        backgroundColor: '#1E293B',
+    sadIconCircle: {
+        width: 80,
+        height: 80,
+        borderRadius: 40,
+        backgroundColor: '#E2E8F0',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: 16,
     },
-    searchInfoCol: {
-        flex: 1,
-    },
-    searchUsernameText: {
+    emptyTitle: {
         fontFamily: 'GoogleSans-Bold',
-        fontSize: 14,
-        color: '#0F172A',
+        fontSize: 18,
+        color: '#334155',
+        textAlign: 'center',
+        marginBottom: 8,
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
-    searchCaptionText: {
+    emptySubtitle: {
         fontFamily: 'GoogleSans-Regular',
-        fontSize: 12,
-        color: '#64748B',
-        marginTop: 2,
+        fontSize: 14,
+        color: '#94A3B8',
+        textAlign: 'center',
+        lineHeight: 20,
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
 });

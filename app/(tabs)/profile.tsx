@@ -105,40 +105,6 @@ interface TimelinePost {
 }
 
 // =====================================================================
-// 4. MOCK DATA
-// =====================================================================
-const MOCK_USER_PROFILE: UserProfile = {
-    id: 'usr_12345',
-    fullName: 'Le Van Duong',
-    username: 'duong_duong',
-    avatarUrl: require('../../assets/images/logoW.png'),
-    followersCount: 1240,
-    followingCount: 350,
-};
-
-const MOCK_USER_STATS: UserStats = {
-    highlightCards: [
-        { label: 'Total Distance', value: '128 km', color: '#BAE6FD' },
-        { label: 'Completed Routes', value: '12', color: '#FEF08A' },
-        { label: 'Moving Time', value: '54 hrs', color: '#86EFAC' },
-        { label: 'Elevation Gain', value: '1,450 m', color: '#DDD6FE' },
-    ],
-    totalActivities: 15,
-    totalDistanceKm: 128,
-    movingTimeFormatted: '54h 20m',
-    currentStreak: 30,
-    streakTitle: 'How it work?',
-    streakGoalText: 'Go outside and touch grass for 15 min',
-};
-
-const MOCK_TIMELINE_POSTS: TimelinePost[] = [
-    { id: 'post_1', imageUrl: require('../../assets/images/onboarding1.png') },
-    { id: 'post_2', imageUrl: require('../../assets/images/onboarding2.png') },
-    { id: 'post_3', imageUrl: require('../../assets/images/logoW.png') },
-    { id: 'post_4', imageUrl: require('../../assets/images/onboarding1.png') },
-];
-
-// =====================================================================
 // 5. MAIN COMPONENT SCREEN
 // =====================================================================
 export default function ProfileScreen() {

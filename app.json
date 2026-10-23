@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "trekkez2",
+    "name": "TrekkEZ",
     "slug": "trekkez2",
     "scheme": "trekkez2",
     "version": "1.0.0",
@@ -12,13 +12,18 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#4cc2fe"
+        "foregroundImage": "./assets/trekkEZ.png",
+        "backgroundColor": "#79d3ff"
       },
       "package": "com.leduong232steam.trekkez2",
       "permissions": [
         "ACCESS_COARSE_LOCATION",
-        "ACCESS_FINE_LOCATION"
+        "ACCESS_FINE_LOCATION",
+        "CAMERA",
+        "RECORD_AUDIO",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "READ_MEDIA_IMAGES"
       ]
     },
     "web": {
@@ -32,9 +37,31 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Cho phép Trekkez truy cập vị trí của bạn để hiển thị bản đồ và dẫn đường."
+          "locationAlwaysAndWhenInUsePermission": "Allow Trekkez to access your location for map display and navigation."
         }
-      ]
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Trekkez to access your camera to take photos.",
+          "microphonePermission": "Allow Trekkez to access your microphone to record videos."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Trekkez to access your photo library to select photos."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow Trekkez to access your photo library to load and select photos.",
+          "savePhotosPermission": "Allow Trekkez to save photos to your photo library.",
+          "isAccessMediaLocationEnabled": true
+        }
+      ],
+      "expo-image"
     ],
     "extra": {
       "router": {},
