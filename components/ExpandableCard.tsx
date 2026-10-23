@@ -99,7 +99,7 @@ export default function ExpandableCard({
                     ) : (
                         <View style={styles.placeholderContent}>
                             <Text style={styles.placeholderText}>
-                                &lt;place holder&gt;&lt;place holder&gt;
+                                Chưa có thông tin chi tiết.
                             </Text>
                         </View>
                     )}

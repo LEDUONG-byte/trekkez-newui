@@ -1,0 +1,9 @@
+{
+  "frontend_source": "trekkez-newui-onlyUIUX.zip",
+  "bundle_kind": "full standalone app source for QA",
+  "frontend_logic_integrated": true,
+  "owner_styles_and_assets_preserved": true,
+  "verification": "scripts/verify-ui-integrity.cjs",
+  "baseline": "audit/UI_OWNER_BASELINE_SHA256.json",
+  "legacy_source": "audit/LEGACY_BACKEND_ONLY_FRONTEND_REFERENCE_SHA256.json"
+}
