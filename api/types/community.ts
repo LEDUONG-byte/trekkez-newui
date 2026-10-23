@@ -14,6 +14,7 @@ export type CommunityPost = {
   mine?: boolean;
   createdAt?: string;
   authorId?: string;
+  avatarUrl?: string;
   /** False only when legacy author text disagrees with current authenticated profile. */
   authorIdentityVerified?: boolean;
 };

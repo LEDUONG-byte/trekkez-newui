@@ -27,7 +27,7 @@ export default function PostScreen() {
       let active=true;
       void loadExploreFeed().then(cards=>{
         if(!active)return;
-        setPosts(cards.filter(c=>c.itemType==='POST').map(c=>({id:c.id,authorId:c.authorId,username:c.username,images:c.images,tags:c.tags,caption:c.caption,likeCount:c.likeCount,commentCount:c.commentCount,isLiked:c.isLiked,isBookmarked:c.isBookmarked,isFollowing:c.isFollowing})));
+        setPosts(cards.filter(c=>c.itemType==='POST').map(c=>({id:c.id,authorId:c.authorId,avatar:c.avatar,username:c.username,images:c.images,tags:c.tags,caption:c.caption,likeCount:c.likeCount,commentCount:c.commentCount,isLiked:c.isLiked,isBookmarked:c.isBookmarked,isFollowing:c.isFollowing})));
         setLoadError('');
       }).catch(e=>{if(active)setLoadError(e instanceof Error?e.message:String(e));});
       return()=>{active=false;};

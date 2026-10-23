@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useCallback, useState } from 'react';
 import {
+    ActivityIndicator,
     StyleSheet,
     View,
     Text,
@@ -10,15 +11,54 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Octicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { newUiAuth } from '../api/integration/newui-gateway';
+import { getAuthSession } from '../api/services/auth/auth-session';
+import { getProfileById, type SupabaseProfile } from '../api/services/account/account-supabase';
 
 export default function SettingScreen() {
     const router = useRouter();
+    const [profile, setProfile] = useState<SupabaseProfile | null>(null);
+    const [email, setEmail] = useState('');
+    const [loadingProfile, setLoadingProfile] = useState(true);
+    const [profileError, setProfileError] = useState('');
 
     const handleEditProfile = () => {
-        // Navigate or open profile edit modal
+        router.push('/edit-profile');
     };
+
+    const loadProfile = useCallback(async (isActive: () => boolean = () => true) => {
+        setLoadingProfile(true);
+        setProfileError('');
+        try {
+            const session = await getAuthSession();
+            if (!session?.userId || !session.accessToken) {
+                throw new Error('Vui lòng đăng nhập để xem thông tin tài khoản.');
+            }
+
+            const currentProfile = await getProfileById(session.accessToken, session.userId);
+            if (isActive()) {
+                setProfile(currentProfile);
+                setEmail(session.email || '');
+            }
+        } catch (error) {
+            if (isActive()) {
+                setProfile(null);
+                setEmail('');
+                setProfileError(error instanceof Error ? error.message : String(error));
+            }
+        } finally {
+            if (isActive()) setLoadingProfile(false);
+        }
+    }, []);
+
+    useFocusEffect(useCallback(() => {
+        let active = true;
+        void loadProfile(() => active);
+        return () => {
+            active = false;
+        };
+    }, [loadProfile]));
 
     const handleTermsOfService = () => {
         // Open Terms of Service
@@ -96,18 +136,18 @@ export default function SettingScreen() {
                 <View style={styles.profileCard}>
                     <View style={styles.profileLeft}>
                         <Image
-                            source={{
-                                uri: 'https://images.unsplash.com/photo-1543852786-1cf6624b9987?auto=format&fit=crop&q=80&w=200',
-                            }}
+                            source={profile?.avatar_url
+                                ? { uri: profile.avatar_url }
+                                : require('../assets/images/logoW.png')}
                             style={styles.avatarImage}
                         />
 
                         <View style={styles.profileInfo}>
                             <Text style={styles.profileName} numberOfLines={1}>
-                                Gallant Frog
+                                {profile?.full_name || profile?.username || 'TrekkEZ user'}
                             </Text>
                             <Text style={styles.profileEmail} numberOfLines={1}>
-                                hoduong085@gmail.com
+                                {email || 'Email not available'}
                             </Text>
                         </View>
                     </View>
@@ -120,6 +160,13 @@ export default function SettingScreen() {
                         <Octicons name="pencil" size={18} color="#94A3B8" />
                     </TouchableOpacity>
                 </View>
+                {loadingProfile ? (
+                    <ActivityIndicator color="#0284C7" />
+                ) : profileError ? (
+                    <TouchableOpacity onPress={() => { void loadProfile(); }}>
+                        <Text style={styles.profileError}>{profileError} (tap to retry)</Text>
+                    </TouchableOpacity>
+                ) : null}
 
                 {/* --- SECTION 1: TERMS & POLICIES --- */}
                 <View style={styles.sectionContainer}>
@@ -261,6 +308,11 @@ const styles = StyleSheet.create({
         color: '#94A3B8',
         includeFontPadding: false,
         textAlignVertical: 'center',
+    },
+    profileError: {
+        color: '#B91C1C',
+        fontSize: 13,
+        paddingHorizontal: 4,
     },
     editBtn: {
         padding: 6,

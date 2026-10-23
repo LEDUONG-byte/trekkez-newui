@@ -5,18 +5,9 @@ import {
     Text,
     TouchableOpacity,
     LayoutAnimation,
-    Platform,
-    UIManager,
     Image,
 } from 'react-native';
 import { Octicons } from '@expo/vector-icons';
-
-if (
-    Platform.OS === 'android' &&
-    UIManager.setLayoutAnimationEnabledExperimental
-) {
-    UIManager.setLayoutAnimationEnabledExperimental(true);
-}
 
 export interface ExpandableCardProps {
     id: string;

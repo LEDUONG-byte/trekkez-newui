@@ -29,6 +29,7 @@ export type HomePostCard = {
   itemType: 'POST';
   id: string;
   username: string;
+  avatar?: string;
   images: string[];
   tags: string[];
   caption: string;
@@ -106,6 +107,7 @@ export function postToHomeCard(post: CommunityPost): HomePostCard {
     itemType: 'POST',
     id: post.id,
     username: post.author,
+    avatar: post.avatarUrl,
     authorId: post.authorId,
     authorIdentityVerified: post.authorIdentityVerified,
     images: post.image ? [post.image] : [],

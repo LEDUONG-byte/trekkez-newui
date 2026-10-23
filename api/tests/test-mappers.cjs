@@ -28,9 +28,11 @@ const plan = {
 };
 assert.equal(moduleExports.planToCard(plan,'u1').startDate, '2026-10-22');
 assert.equal(moduleExports.planToCard(plan,'u2').isOwnedByYou, false);
-const post = {id:'c1',author:'Person',image:'https://example.test/p.jpg', tag:'Ảnh đẹp',
+const post = {id:'c1',author:'Person',avatarUrl:'https://example.test/avatar.jpg',
+  image:'https://example.test/p.jpg', tag:'Ảnh đẹp',
   content:'Nice', title:'Sunset', likes:2, comments:1, liked:true, saved:false};
 assert.deepEqual(moduleExports.postToHomeCard(post).images, ['https://example.test/p.jpg']);
+assert.equal(moduleExports.postToHomeCard(post).avatar, 'https://example.test/avatar.jpg');
 assert.equal(moduleExports.postToHomeCard(post).isLiked, true);
 assert.equal(moduleExports.teamToHomeCard(team).itemType, 'TEAM');
 const interleaved = moduleExports.interleaveHomeFeed(
