@@ -37,6 +37,7 @@ export type HomePostCard = {
   isBookmarked: boolean;
   isFollowing?: boolean;
   authorId?: string;
+  authorIdentityVerified?: boolean;
 };
 export type HomeTeamCard = {
   itemType: 'TEAM';
@@ -102,6 +103,7 @@ export function postToHomeCard(post: CommunityPost): HomePostCard {
     id: post.id,
     username: post.author,
     authorId: post.authorId,
+    authorIdentityVerified: post.authorIdentityVerified,
     images: post.image ? [post.image] : [],
     tags: post.tag ? [post.tag] : [],
     caption: post.content || post.title,

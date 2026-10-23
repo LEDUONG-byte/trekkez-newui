@@ -17,12 +17,12 @@ import { setUserFollowing } from '../../api/services/community/social-supabase';
 
 import PostCard, { PostCardProps } from '../../components/PostCard';
 import TeamPostCard, { TeamPostCardProps } from '../../components/TeamPostCard';
-import SearchFloat from '../../components/SearchFloat';
+import SearchBarHeader from '../../components/SearchBarHeader';
 
 export type SubTabType = 'EXPLORE' | 'FOLLOWING';
 
 export type FeedItem =
-    | ({ itemType: 'POST'; id: string; authorId?: string; isFollowing?: boolean } & PostCardProps)
+    | ({ itemType: 'POST'; id: string; authorId?: string; isFollowing?: boolean; authorIdentityVerified?: boolean } & PostCardProps)
     | ({ itemType: 'TEAM'; id: string; isFollowing?: boolean } & TeamPostCardProps);
 
 const MOCK_FEED_ITEMS: FeedItem[] = [
@@ -86,8 +86,10 @@ export default function HomeScreen() {
     const bottomMargin = Math.max(insets.bottom + 20, 16);
 
     const [subTab, setSubTab] = useState<SubTabType>('EXPLORE');
-    const [selectedSearchId, setSelectedSearchId] = useState('');
+    const [isSearchActive, setIsSearchActive] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
     const [feedItems, setFeedItems] = useState<FeedItem[]>([]);
+    const [followedAuthorIds, setFollowedAuthorIds] = useState<Set<string>>(() => new Set());
     const [busy, setBusy] = useState(true);
     const [feedError, setFeedError] = useState('');
     const [renderVersion, setRenderVersion] = useState(0);
@@ -100,22 +102,44 @@ export default function HomeScreen() {
                 ...p,
                 isFollowing: p.itemType === 'POST' && Boolean(p.authorId && authorIds.has(p.authorId)),
             })) as FeedItem[];
+            setFollowedAuthorIds(new Set(authorIds));
             setFeedItems(next);
+            if (__DEV__) {
+                const namesByOwner = new Map<string, Set<string>>();
+                for (const item of next) {
+                    if (item.itemType !== 'POST' || !item.authorId) continue;
+                    const labels = namesByOwner.get(item.authorId) ?? new Set<string>();
+                    labels.add(item.username ?? '');
+                    namesByOwner.set(item.authorId, labels);
+                }
+                const inconsistentOwners = [...namesByOwner.values()].filter((labels) => labels.size > 1).length;
+                console.log(`[TrekkEZ Following] Following: ${authorIds.size} user(s); Explore: ${next.filter((p) => p.itemType === 'POST').length} post(s); Following: ${next.filter((p) => p.itemType === 'POST' && p.authorId && authorIds.has(p.authorId) && p.authorIdentityVerified !== false).length} post(s)`);
+                if (inconsistentOwners) console.warn(`[TrekkEZ Following] ${inconsistentOwners} owner_id(s) are displayed using multiple author names. Verify community_posts.owner_id and author against real profiles.`);
+            }
             setRenderVersion((v) => v + 1);
         } catch (error) {
             setFeedItems([]);
+            setFollowedAuthorIds(new Set());
             setFeedError(error instanceof Error ? error.message : String(error));
         } finally { setBusy(false); }
     }, []);
     useFocusEffect(useCallback(() => { void refresh(); }, [refresh]));
-    const [isSearchVisible, setIsSearchVisible] = useState(false);
 
     const filteredItems = useMemo(() => {
+        // The Following tab must use authoritative user_follows IDs,
+        // not PostCard's optimistic local "Following" button state.
         const scope = subTab === 'FOLLOWING'
-            ? feedItems.filter((item) => item.itemType === 'POST' && Boolean(item.authorId && item.isFollowing))
+            ? feedItems.filter((item) => item.itemType === 'POST' && Boolean(item.authorId && followedAuthorIds.has(item.authorId) && item.authorIdentityVerified !== false))
             : feedItems;
-        return selectedSearchId ? scope.filter((item) => item.id === selectedSearchId) : scope;
-    }, [subTab, feedItems, selectedSearchId]);
+        const query = searchQuery.trim().toLocaleLowerCase();
+        if (!query) return scope;
+        return scope.filter((item) =>
+            item.username?.toLocaleLowerCase().includes(query) ||
+            item.caption?.toLocaleLowerCase().includes(query) ||
+            (item.itemType === 'POST' && item.tags?.some((tag) => tag.toLocaleLowerCase().includes(query))) ||
+            (item.itemType === 'TEAM' && item.teamName?.toLocaleLowerCase().includes(query))
+        );
+    }, [subTab, feedItems, followedAuthorIds, searchQuery]);
 
     const handleToggleFollow = async (item: FeedItem) => {
         if (item.itemType !== 'POST' || !item.authorId) {
@@ -134,33 +158,18 @@ export default function HomeScreen() {
         } catch (error) { const message = error instanceof Error ? error.message : String(error); await refresh(); setFeedError(message); }
     };
 
-    const searchPostsData = useMemo(() => {
-        return feedItems.map((item) => ({
-            id: item.id,
-            username: item.username,
-            caption: item.caption,
-        }));
-    }, [feedItems]);
-
     const renderHeader = () => (
         <View style={styles.headerContainer}>
-            <View style={styles.headerBar}>
-                <Text style={styles.headerTitle}>HOME</Text>
-                <View style={styles.headerRightBtns}>
-                    <TouchableOpacity
-                        style={styles.circleHeaderBtn}
-                        activeOpacity={0.7}
-                        onPress={() => setIsSearchVisible(true)}
-                    >
-                        <Octicons name="search" size={18} color="#0F172A" />
-                    </TouchableOpacity>
-                    {selectedSearchId ? (
-                        <TouchableOpacity style={styles.circleHeaderBtn} onPress={() => setSelectedSearchId('')}>
-                            <Octicons name="x" size={18} color="#0F172A" />
-                        </TouchableOpacity>
-                    ) : null}
-                </View>
-            </View>
+            <SearchBarHeader
+                title="HOME"
+                placeholder="Search posts, users, tags..."
+                isSearching={isSearchActive}
+                searchQuery={searchQuery}
+                onSearchQueryChange={setSearchQuery}
+                onStartSearch={() => setIsSearchActive(true)}
+                onCancelSearch={() => { setIsSearchActive(false); setSearchQuery(''); }}
+                containerStyle={styles.inlineSearchHeader}
+            />
 
             <View style={styles.tabToggleRow}>
                 <TouchableOpacity
@@ -169,7 +178,7 @@ export default function HomeScreen() {
                         subTab === 'EXPLORE' ? styles.tabBtnActive : styles.tabBtnInactive,
                     ]}
                     activeOpacity={0.8}
-                    onPress={() => { setSelectedSearchId(''); setSubTab('EXPLORE'); }}
+                    onPress={() => setSubTab('EXPLORE')}
                 >
                     <Text
                         style={[
@@ -187,7 +196,7 @@ export default function HomeScreen() {
                         subTab === 'FOLLOWING' ? styles.tabBtnActive : styles.tabBtnInactive,
                     ]}
                     activeOpacity={0.8}
-                    onPress={() => { setSelectedSearchId(''); setSubTab('FOLLOWING'); }}
+                    onPress={() => setSubTab('FOLLOWING')}
                 >
                     <Text
                         style={[
@@ -238,11 +247,11 @@ export default function HomeScreen() {
             <FlatList
                 refreshing={busy}
                 onRefresh={() => { void refresh(); }}
-                ListEmptyComponent={!busy ? <Text style={{ color: '#64748B', padding: 24 }}>Không có bài đăng để hiển thị.</Text> : null}
+                ListEmptyComponent={!busy ? <Text style={{ color: '#64748B', padding: 24 }}>{searchQuery.trim() ? 'Không tìm thấy bài đăng phù hợp.' : 'Không có bài đăng để hiển thị.'}</Text> : null}
                 style={styles.feedList}
                 data={filteredItems}
                 keyExtractor={(item, index) => item.id ?? index.toString()}
-                ListHeaderComponent={renderHeader}
+                ListHeaderComponent={renderHeader()}
                 renderItem={renderFeedItem}
                 ItemSeparatorComponent={() => <View style={styles.dashedSeparator} />}
                 showsVerticalScrollIndicator={false}
@@ -256,30 +265,6 @@ export default function HomeScreen() {
                 </TouchableOpacity>
             </View>
 
-            <SearchFloat<{ id: string; username?: string; caption?: string }>
-                visible={isSearchVisible}
-                data={searchPostsData}
-                searchFields={['username', 'caption']}
-                placeholder="Search posts or users"
-                contentLayout="list"
-                onClose={() => setIsSearchVisible(false)}
-                renderItem={(item) => (
-                    <TouchableOpacity
-                        key={item.id}
-                        style={styles.searchResultRow}
-                        activeOpacity={0.8}
-                        onPress={() => { setSelectedSearchId(item.id); setIsSearchVisible(false); }}
-                    >
-                        <View style={styles.searchAvatarPlaceholder} />
-                        <View style={styles.searchInfoCol}>
-                            <Text style={styles.searchUsernameText}>@{item.username}</Text>
-                            <Text style={styles.searchCaptionText} numberOfLines={1}>
-                                {item.caption}
-                            </Text>
-                        </View>
-                    </TouchableOpacity>
-                )}
-            />
         </SafeAreaView>
     );
 }
@@ -299,6 +284,7 @@ const styles = StyleSheet.create({
         paddingBottom: 110,
         backgroundColor: '#F8FAFC',
     },
+    inlineSearchHeader: { marginHorizontal: 24 },
     headerContainer: {
         width: '100%',
         backgroundColor: '#F8FAFC',

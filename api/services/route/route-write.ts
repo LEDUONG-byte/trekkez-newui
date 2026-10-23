@@ -31,12 +31,19 @@ export async function saveRemoteRoute(route: NewRoute): Promise<string> {
   if (!Number.isFinite(route.distanceMeters) || !Number.isFinite(route.durationSeconds))
     throw new Error('Quãng đường hoặc thời gian Route không hợp lệ.');
   const auth = {accessToken: session.accessToken, expectedUserId:session.userId};
-  const fetched = await supabaseRequest('/rest/v1/routes?select=*&limit=1', auth);
-  const sample = Array.isArray(fetched) ? fetched[0] as Row | undefined : undefined;
-  if (!sample) throw new Error('Không lấy được mẫu cấu trúc routes. Hãy chạy sql/02_ROUTE_CONTRACT.sql trước khi ghi.');
-  const keys = new Set(Object.keys(sample));
-  const required = ['id','creator_id','name','geometry','distance_km','estimated_duration_min'];
-  if (!required.every(k => keys.has(k))) throw new Error('Routes hiện tại không khớp hợp đồng PostGIS đã biết. Không ghi để tránh dữ liệu sai; cần kết quả SQL contract.');
+  // select=...&limit=0 validates actual column names even for an empty table.
+  // Checking a sample row incorrectly blocked every first-time Route save.
+  const routeColumns = 'id,creator_id,name,geometry,distance_km,estimated_duration_min';
+  const waypointColumns = 'route_id,creator_id,name,type,latitude,longitude,order_index';
+  try {
+    await Promise.all([
+      supabaseRequest(`/rest/v1/routes?select=${routeColumns}&limit=0`, auth),
+      supabaseRequest(`/rest/v1/waypoints?select=${waypointColumns}&limit=0`, auth),
+    ]);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(`Cấu trúc bảng routes/waypoints chưa khớp dữ liệu cần lưu (hoặc thiếu quyền SELECT): ${reason}. Hãy kiểm tra cột và RLS trên Supabase trước khi ghi.`);
+  }
   const lineString = `SRID=4326;LINESTRING(${route.geometry.map(pt => `${pt[0]} ${pt[1]}`).join(',')})`;
   const routeBody: Row = {
     id:route.id,creator_id:session.userId,name:route.name.trim(),

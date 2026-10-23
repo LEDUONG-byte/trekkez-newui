@@ -14,7 +14,7 @@ import { Octicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { loadPlanCards, loadRouteCards } from '../../api/integration/newui-gateway';
 import ExpandableCard from '../../components/ExpandableCard';
-import SearchFloat from '../../components/SearchFloat';
+import SearchBarHeader from '../../components/SearchBarHeader';
 
 // =====================================================================
 // TYPES & DATA MODELS
@@ -109,8 +109,8 @@ export default function PlanScreen() {
     }, []);
     useFocusEffect(useCallback(() => { void refresh(); }, [refresh]));
 
-    const [isSearchVisible, setIsSearchVisible] = useState(false);
-    const [selectedSearchId, setSelectedSearchId] = useState('');
+    const [isSearchActive, setIsSearchActive] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
     // Navigation & Sort States
     const [subTab, setSubTab] = useState<SubTabType>('PLAN');
     const [planSortBy, setPlanSortBy] = useState<SortOption>('name');
@@ -145,7 +145,13 @@ export default function PlanScreen() {
     }, [rawList, currentSortBy]);
 
     // Tự động kiểm tra trạng thái rỗng từ dữ liệu thực tế
-    const visibleItems = selectedSearchId ? sortedList.filter(item => item.id === selectedSearchId) : sortedList;
+    const visibleItems = useMemo(() => {
+        const query = searchQuery.trim().toLocaleLowerCase();
+        return query ? sortedList.filter(item =>
+            item.title.toLocaleLowerCase().includes(query) ||
+            item.details?.toLocaleLowerCase().includes(query)
+        ) : sortedList;
+    }, [sortedList, searchQuery]);
     const isEmpty = visibleItems.length === 0;
 
     const handleSelectSort = (option: SortOption) => {
@@ -164,20 +170,15 @@ export default function PlanScreen() {
                 contentContainerStyle={styles.scrollContent}
             >
                 {/* --- HEADER BAR --- */}
-                <View style={styles.headerBar}>
-                    <Text style={styles.headerTitle}>PLAN</Text>
-                    <View style={styles.headerRightBtns}>
-                        <TouchableOpacity style={styles.circleHeaderBtn} activeOpacity={0.7}
-                            onPress={() => setIsSearchVisible(true)}>
-                            <Octicons name="search" size={18} color="#0F172A" />
-                        </TouchableOpacity>
-                        {selectedSearchId ? (
-                            <TouchableOpacity style={styles.circleHeaderBtn} onPress={() => setSelectedSearchId('')}>
-                                <Octicons name="x" size={18} color="#0F172A" />
-                            </TouchableOpacity>
-                        ) : null}
-                    </View>
-                </View>
+                <SearchBarHeader
+                    title="PLAN"
+                    placeholder={subTab === 'PLAN' ? 'Search plans...' : 'Search routes...'}
+                    isSearching={isSearchActive}
+                    searchQuery={searchQuery}
+                    onSearchQueryChange={setSearchQuery}
+                    onStartSearch={() => setIsSearchActive(true)}
+                    onCancelSearch={() => { setIsSearchActive(false); setSearchQuery(''); }}
+                />
 
                 {/* --- ACTION CARDS --- */}
                 <View style={styles.actionCardsRow}>
@@ -209,7 +210,7 @@ export default function PlanScreen() {
                     <TouchableOpacity
                         style={[styles.tabBtn, subTab === 'PLAN' ? styles.tabBtnActive : styles.tabBtnInactive]}
                         activeOpacity={0.8}
-                        onPress={() => { setSelectedSearchId(''); setSubTab('PLAN'); }}
+                        onPress={() => setSubTab('PLAN')}
                     >
                         <Octicons name="bookmark" size={14} color={subTab === 'PLAN' ? '#FFFFFF' : '#0F172A'} />
                         <Text style={[styles.tabBtnText, subTab === 'PLAN' ? styles.tabTextActive : styles.tabTextInactive]}>
@@ -220,7 +221,7 @@ export default function PlanScreen() {
                     <TouchableOpacity
                         style={[styles.tabBtn, subTab === 'ROUTE' ? styles.tabBtnActive : styles.tabBtnInactive]}
                         activeOpacity={0.8}
-                        onPress={() => { setSelectedSearchId(''); setSubTab('ROUTE'); }}
+                        onPress={() => setSubTab('ROUTE')}
                     >
                         <Octicons name="git-branch" size={14} color={subTab === 'ROUTE' ? '#FFFFFF' : '#0F172A'} />
                         <Text style={[styles.tabBtnText, subTab === 'ROUTE' ? styles.tabTextActive : styles.tabTextInactive]}>
@@ -267,7 +268,7 @@ export default function PlanScreen() {
                             <Octicons name="smiley" size={48} color="#94A3B8" />
                         </View>
                         <Text style={styles.emptyTitle}>
-                            {subTab === 'PLAN' ? 'You currently have no plans !' : 'You currently have no route !'}
+                            {searchQuery.trim() ? 'No matching result found' : subTab === 'PLAN' ? 'You currently have no plans !' : 'You currently have no route !'}
                         </Text>
                         <Text style={styles.emptySubtitle}>
                             {subTab === 'PLAN'
@@ -279,12 +280,13 @@ export default function PlanScreen() {
                     <View style={styles.listContainer}>
                         {visibleItems.map((item) => (
                             <ExpandableCard
-                                key={`${item.id}-${selectedSearchId === item.id ? 'selected' : 'normal'}`}
+                                key={item.id}
                                 id={item.id}
                                 title={item.title}
                                 isOwnedByYou={item.isOwnedByYou}
                                 headerColor={item.color}
-                                defaultExpanded={selectedSearchId === item.id}
+                                defaultExpanded={false}
+                                onHeaderPress={(id) => router.push({ pathname: subTab === 'PLAN' ? '/manage-plan' : '/manage-route', params: { id } })}
                             >
                                 <View style={styles.cardContentWrapper}>
                                     {item.details ? <Text style={styles.cardDetailText}>{item.details}</Text> : null}
@@ -299,23 +301,6 @@ export default function PlanScreen() {
                 )}
             </ScrollView>
 
-            <SearchFloat<PlanItem>
-                visible={isSearchVisible}
-                data={rawList}
-                searchFields={['title', 'details']}
-                placeholder={subTab === 'PLAN' ? 'Find a plan' : 'Find a route'}
-                contentLayout="list"
-                onClose={() => setIsSearchVisible(false)}
-                renderItem={(item) => (
-                    <TouchableOpacity key={item.id}
-                        style={{ padding: 14, backgroundColor: '#FFFFFF', borderRadius: 12 }}
-                        onPress={() => { setSelectedSearchId(item.id); setIsSearchVisible(false); }}>
-                        <Text style={{ color: '#0F172A', fontFamily: 'GoogleSans-Bold' }}>{item.title}</Text>
-                        <Text style={{ color: '#64748B' }} numberOfLines={1}>{item.details || item.startDate}</Text>
-                    </TouchableOpacity>
-                )}
-                renderEmpty={() => <Text style={{ color: '#64748B', padding: 12 }}>Không tìm thấy kết quả.</Text>}
-            />
             {/* --- DROPDOWN SORT MENU MODAL --- */}
             <Modal
                 visible={isMenuVisible}

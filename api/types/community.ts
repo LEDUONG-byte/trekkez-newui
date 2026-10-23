@@ -13,6 +13,8 @@ export type CommunityPost = {
   saved?: boolean;
   mine?: boolean;
   authorId?: string;
+  /** False only when legacy author text disagrees with current authenticated profile. */
+  authorIdentityVerified?: boolean;
 };
 
 export type CommunityComment = {

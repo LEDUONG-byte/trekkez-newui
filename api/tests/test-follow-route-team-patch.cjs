@@ -1,0 +1,11 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs'); const path = require('node:path');
+const root = path.resolve(__dirname, '../../');
+const text = (rel) => fs.readFileSync(path.join(root, rel), 'utf8');
+assert.match(text('app/(tabs)/plan.tsx'), /manage-route/);
+assert.match(text('app/(tabs)/team.tsx'), /Xem Team/);
+assert.match(text('app/team-manage.tsx'), /Yêu cầu tham gia Team/);
+assert.match(text('app/(tabs)/index.tsx'), /authorIdentityVerified !== false/);
+assert.match(text('api/services/community/community-supabase.ts'), /verifiedAuthor/);
+assert.match(text('app/manage-route.tsx'), /getRemoteRouteDetail/);
+console.log('PASS structural wiring Route viewer + Team join/view + Following attribution guard. No live Supabase tests.');

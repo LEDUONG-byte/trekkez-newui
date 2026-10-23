@@ -18,6 +18,7 @@ import { router, useFocusEffect } from 'expo-router';
 import { loadTeamCards } from '../../api/integration/newui-gateway';
 import ExpandableCard from '../../components/ExpandableCard';
 import SearchFloat from '../../components/SearchFloat';
+import SearchBarHeader from '../../components/SearchBarHeader';
 import { uploadTeam, getRemoteTeam } from '../../api/services/team/team-supabase';
 import { requestTeamJoin } from '../../api/services/team/team-join-request';
 
@@ -60,6 +61,8 @@ export default function TeamScreen() {
     useFocusEffect(useCallback(() => { void refreshTeams(); }, [refreshTeams]));
 
     const [isSearchVisible, setIsSearchVisible] = useState(false);
+    const [isSearchActive, setIsSearchActive] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
     const [isCreateVisible, setIsCreateVisible] = useState(false);
     const [teamName, setTeamName] = useState('');
     const [teamDescription, setTeamDescription] = useState('');
@@ -137,7 +140,14 @@ export default function TeamScreen() {
         }
     }, [teams, sortBy]);
 
-    const isEmpty = sortedTeams.length === 0;
+    const visibleTeams = useMemo(() => {
+        const query = searchQuery.trim().toLocaleLowerCase();
+        return query ? sortedTeams.filter((team) =>
+            team.name.toLocaleLowerCase().includes(query) ||
+            team.description?.toLocaleLowerCase().includes(query)
+        ) : sortedTeams;
+    }, [sortedTeams, searchQuery]);
+    const isEmpty = visibleTeams.length === 0;
 
     const handleSelectSort = (option: TeamSortOption) => {
         setSortBy(option);
@@ -151,15 +161,15 @@ export default function TeamScreen() {
                 contentContainerStyle={styles.scrollContent}
             >
                 {/* --- HEADER BAR --- */}
-                <View style={styles.headerBar}>
-                    <Text style={styles.headerTitle}>TEAM</Text>
-                    <View style={styles.headerRightBtns}>
-                        <TouchableOpacity style={styles.circleHeaderBtn} activeOpacity={0.7}
-                            onPress={() => setIsSearchVisible(true)}>
-                            <Octicons name="search" size={18} color="#0F172A" />
-                        </TouchableOpacity>
-                    </View>
-                </View>
+                <SearchBarHeader
+                    title="TEAM"
+                    placeholder="Search my teams..."
+                    isSearching={isSearchActive}
+                    searchQuery={searchQuery}
+                    onSearchQueryChange={setSearchQuery}
+                    onStartSearch={() => setIsSearchActive(true)}
+                    onCancelSearch={() => { setIsSearchActive(false); setSearchQuery(''); }}
+                />
 
                 {/* --- ACTION CARDS --- */}
                 <View style={styles.actionCardsRow}>
@@ -211,14 +221,14 @@ export default function TeamScreen() {
                         <View style={styles.sadIconCircle}>
                             <Octicons name="smiley" size={48} color="#94A3B8" />
                         </View>
-                        <Text style={styles.emptyTitle}>You currently have no team!</Text>
+                        <Text style={styles.emptyTitle}>{searchQuery.trim() ? 'No matching team found' : 'You currently have no team!'}</Text>
                         <Text style={styles.emptySubtitle}>
-                            Create a new team or explore existing teams from the community
+                            {searchQuery.trim() ? 'Try a different search keyword.' : 'Create a new team or explore existing teams from the community'}
                         </Text>
                     </View>
                 ) : (
                     <View style={styles.listContainer}>
-                        {sortedTeams.map((team) => (
+                        {visibleTeams.map((team) => (
                             <ExpandableCard
                                 key={team.id}
                                 id={team.id}
@@ -240,6 +250,13 @@ export default function TeamScreen() {
                                             🕒 Tạo lúc: {team.createdAt}
                                         </Text>
                                     </View>
+                                    <TouchableOpacity accessibilityRole="button"
+                                        onPress={() => router.push({ pathname: '/team-manage', params: { teamId: team.id } })}
+                                        style={{ alignSelf: 'flex-start', paddingVertical: 9, marginTop: 8 }}>
+                                        <Text style={{ color: '#2563EB', fontFamily: 'GoogleSans-Bold' }}>
+                                            {team.isOwnedByYou ? 'Quản lý Team →' : 'Xem Team →'}
+                                        </Text>
+                                    </TouchableOpacity>
                                 </View>
                             </ExpandableCard>
                         ))}
@@ -257,10 +274,10 @@ export default function TeamScreen() {
                 renderItem={(team) => (
                     <TouchableOpacity key={team.id}
                         style={{ backgroundColor: '#FFFFFF', borderRadius: 12, padding: 14 }}
-                        onPress={() => { void requestJoin(team); }}>
+                        onPress={() => { setIsSearchVisible(false); router.push({ pathname: '/team-manage', params: { teamId: team.id } }); }}>
                         <Text style={{ fontFamily: 'GoogleSans-Bold', color: '#0F172A' }}>{team.name}</Text>
                         <Text style={{ color: '#64748B', marginTop: 4 }} numberOfLines={2}>
-                            {team.description || `${team.membersCount} thành viên`} · Tap to request join
+                            {team.description || `${team.membersCount} thành viên`} · Tap to view Team
                         </Text>
                     </TouchableOpacity>
                 )}

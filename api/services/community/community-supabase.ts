@@ -189,6 +189,13 @@ export async function uploadCommunityPost(
     );
   }
 
+  const authorProfiles = await getAllSupabaseRows<{ id: string; full_name: string | null; username: string | null }>(
+    `/rest/v1/profiles?id=eq.${encodeURIComponent(auth.userId)}&select=id,full_name,username`,
+    { accessToken: auth.accessToken, expectedUserId: auth.userId },
+  );
+  const verifiedAuthor = authorProfiles[0]?.full_name?.trim() || authorProfiles[0]?.username?.trim();
+  if (!verifiedAuthor) throw new Error('Tài khoản chưa có tên Profile để đăng bài.');
+
   await supabaseRequest("/rest/v1/community_posts?on_conflict=id", {
     method: "POST",
     accessToken: auth.accessToken,
@@ -200,7 +207,7 @@ export async function uploadCommunityPost(
       {
         id: post.id,
         owner_id: auth.userId,
-        author: post.author,
+        author: verifiedAuthor,
         time_text: post.time,
         location: post.location,
         title: post.title,
@@ -267,6 +274,26 @@ export async function getRemoteCommunityPosts(
   );
   const savedPostIds = new Set(cleanSaveRows.map((row) => row.post_id));
 
+  // Legacy data may contain a post labeled as a different person than its owner_id.
+  // Do not reassign ownership or rewrite the author's historical text.
+  // Mark an unverified attribution and keep that post in Explore, not Following.
+  type OwnerProfileRow = { id: string; full_name: string | null; username: string | null };
+  const owners = [...new Set(cleanPostRows.map(row => row.owner_id).filter((id): id is string => Boolean(id)))];
+  const profiles = new Map<string, OwnerProfileRow>();
+  if (owners.length) {
+    try {
+      const rows = await getAllSupabaseRows<OwnerProfileRow>(
+        `/rest/v1/profiles?id=in.(${owners.map(encodeURIComponent).join(',')})&select=id,full_name,username`,
+        requestOptions,
+      );
+      rows.forEach(profile => profiles.set(profile.id, profile));
+    } catch (error) {
+      if (__DEV__) console.warn('[TrekkEZ Following] Owner profile lookup unavailable; author verification skipped.', error);
+    }
+  }
+  const normalizedName = (text: string | null | undefined) =>
+    (text || '').trim().replace(/^@/, '').replace(/\s+/g, ' ').toLocaleLowerCase();
+
   return cleanPostRows.map(
     (row): CommunityPost => ({
       id: row.id,
@@ -283,6 +310,9 @@ export async function getRemoteCommunityPosts(
       saved: savedPostIds.has(row.id),
       mine: row.owner_id === auth.userId,
       authorId: row.owner_id ?? undefined,
+      authorIdentityVerified: !row.owner_id || !profiles.has(row.owner_id) ||
+        [profiles.get(row.owner_id)?.full_name, profiles.get(row.owner_id)?.username]
+          .some(name => Boolean(normalizedName(name)) && normalizedName(name) === normalizedName(row.author)),
     }),
   );
 }

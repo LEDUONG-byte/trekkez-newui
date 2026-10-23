@@ -2,7 +2,7 @@ import React,{useCallback,useState} from 'react';
 import { ActivityIndicator,SafeAreaView,ScrollView,Text,TextInput,TouchableOpacity,View } from 'react-native';
 import {router,useFocusEffect,useLocalSearchParams} from 'expo-router';
 import {getRemoteTeam,getRemoteTeamMembers} from '../api/services/team/team-supabase';
-import {getTeamJoinRequests,approveTeamJoinRequest,rejectTeamJoinRequest,updateTeamMaxMembers} from '../api/services/team/team-join-request';
+import {getTeamJoinRequests,approveTeamJoinRequest,rejectTeamJoinRequest,updateTeamMaxMembers,requestTeamJoin,cancelTeamJoinRequest,getMyPendingTeamJoinRequestIds} from '../api/services/team/team-join-request';
 import {searchTeamInviteCandidates,inviteUserToTeam,getMyTeamInvitation,acceptTeamInvitation,rejectTeamInvitation} from '../api/services/team/team-invitation';
 import type {TeamJoinRequest} from '../api/services/team/team-join-request';
 import type {TeamInviteCandidate,MyTeamInvitation} from '../api/services/team/team-invitation';
@@ -11,6 +11,7 @@ import type {TeamMember} from '../api/types/team';
 export default function TeamManageScreen(){
   const {teamId}=useLocalSearchParams<{teamId?:string}>();
   const [name,setName]=useState('');const [owner,setOwner]=useState(false);
+  const [isMember,setIsMember]=useState(false);const [pendingJoin,setPendingJoin]=useState(false);
   const [members,setMembers]=useState<TeamMember[]>([]);const [requests,setRequests]=useState<TeamJoinRequest[]>([]);
   const [invite,setInvite]=useState<MyTeamInvitation|null>(null);
   const [query,setQuery]=useState('');const [candidates,setCandidates]=useState<TeamInviteCandidate[]>([]);
@@ -22,11 +23,20 @@ export default function TeamManageScreen(){
       const team=await getRemoteTeam(teamId);
       if(!team)throw new Error('Không tìm thấy Team hoặc không có quyền xem.');
       setName(team.name);setOwner(team.mine);setMaxMembers(String(team.maxMembers||20));
-      const [foundMembers,foundRequests,myInvite]=await Promise.all([
+      setIsMember(team.joined || team.mine);
+      // A member/requests RPC failure must not prevent opening a valid Team.
+      const details = await Promise.allSettled([
         getRemoteTeamMembers(teamId),team.mine?getTeamJoinRequests(teamId):Promise.resolve([]),
         team.mine?Promise.resolve(null):getMyTeamInvitation(teamId),
-      ]);
-      setMembers(foundMembers);setRequests(foundRequests);setInvite(myInvite);
+        team.mine?Promise.resolve(new Set<string>()):getMyPendingTeamJoinRequestIds(true),
+      ] as const);
+      const [membersState,requestsState,inviteState,pendingState]=details;
+      setMembers(membersState.status==='fulfilled'?membersState.value:[]);
+      setRequests(requestsState.status==='fulfilled'?requestsState.value:[]);
+      setInvite(inviteState.status==='fulfilled'?inviteState.value:null);
+      setPendingJoin(pendingState.status==='fulfilled'?pendingState.value.has(teamId):false);
+      const failed=details.filter(part=>part.status==='rejected');
+      if(failed.length) setError('Một số dữ liệu thành viên/yêu cầu chưa tải được. Thử tải lại nếu cần.');
     }catch(e){setError(e instanceof Error?e.message:String(e));}
     finally{setBusy(false);}
   },[teamId]);
@@ -50,6 +60,11 @@ export default function TeamManageScreen(){
     {error?<Text style={{color:'#B91C1C',marginVertical:10}}>{error}</Text>:null}
     <Text style={{fontWeight:'700',marginTop:10}}>Members ({members.length})</Text>
     {members.map(p=><Text key={p.userId} style={{marginVertical:6}}>{p.displayName} · {p.role}</Text>)}
+    {!owner && !isMember && !busy && teamId && <View style={{marginTop:18}}>
+      {pendingJoin
+        ? action('Hủy yêu cầu tham gia',()=>cancelTeamJoinRequest(teamId))
+        : action('Yêu cầu tham gia Team',()=>requestTeamJoin(teamId))}
+    </View>}
     {owner? <>
       <Text style={{fontWeight:'700',marginTop:22}}>Pending join requests ({requests.length})</Text>
       {requests.map(req=><View key={req.userId} style={{paddingVertical:9,borderBottomWidth:1,borderColor:'#E2E8F0'}}>
