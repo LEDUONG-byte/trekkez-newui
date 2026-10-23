@@ -18,7 +18,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Octicons, Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import * as MediaLibrary from 'expo-media-library';
+import * as MediaLibrary from 'expo-media-library/legacy';
 import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
 
 import PrimaryButton from '../components/PrimaryButton';
@@ -45,16 +45,6 @@ interface AlertState {
     onClose: () => void;
 }
 
-// Định nghĩa riêng interface ảnh để tránh xung đột type giữa Expo Modules và Legacy MediaLibrary
-export interface DevicePhoto {
-    id: string;
-    uri: string;
-    filename?: string;
-    width?: number;
-    height?: number;
-    creationTime?: number;
-}
-
 const FILTER_PRESETS: FilterOption[] = [
     { id: 'normal', name: 'Normal', overlayColor: 'transparent', opacity: 0 },
     { id: 'warm', name: 'Warm', overlayColor: '#F59E0B', opacity: 0.15 },
@@ -79,10 +69,11 @@ export default function CreatePostScreen() {
     const [activeImageIndex, setActiveImageIndex] = useState<number>(0);
 
     // Media Library States
-    const [libraryPhotos, setLibraryPhotos] = useState<DevicePhoto[]>([]);
+    const [libraryPhotos, setLibraryPhotos] = useState<MediaLibrary.Asset[]>([]);
     const [hasNextPage, setHasNextPage] = useState<boolean>(true);
     const [afterCursor, setAfterCursor] = useState<string | undefined>(undefined);
     const [isLoadingPhotos, setIsLoadingPhotos] = useState<boolean>(false);
+    const loadingRef = useRef<boolean>(false);
 
     // Custom Alert State
     const [alertConfig, setAlertConfig] = useState<AlertState>({
@@ -125,55 +116,58 @@ export default function CreatePostScreen() {
     const [selectedLocation, setSelectedLocation] = useState<string>('');
     const [isPublic, setIsPublic] = useState<boolean>(true);
 
-    // Load ảnh từ thư viện thiết bị
+    // Load ảnh từ thiết bị
     const loadDevicePhotos = useCallback(async (reset = false) => {
-        if (isLoadingPhotos || (!hasNextPage && !reset)) return;
+        if (loadingRef.current) return;
+        if (!reset && !hasNextPage) return;
 
         try {
+            loadingRef.current = true;
             setIsLoadingPhotos(true);
-            const { status, canAskAgain } = await MediaLibrary.getPermissionsAsync();
+
+            // Xin quyền đọc thư viện (false = xin quyền READ chứ không chỉ WRITE)
+            const { status, canAskAgain } = await MediaLibrary.getPermissionsAsync(false);
             let finalStatus = status;
 
             if (status !== 'granted') {
-                const req = await MediaLibrary.requestPermissionsAsync();
+                const req = await MediaLibrary.requestPermissionsAsync(false);
                 finalStatus = req.status;
             }
 
             if (finalStatus !== 'granted') {
                 if (!canAskAgain) {
-                    showAlert('Permission Required', 'Please enable media library access in settings to view device photos.');
+                    showAlert('Permission Required', 'Please enable media library access in app settings to view photos.');
                 }
-                setIsLoadingPhotos(false);
                 return;
             }
 
             const assets = await MediaLibrary.getAssetsAsync({
                 first: 40,
                 after: reset ? undefined : afterCursor,
-                mediaType: ['photo'], // Dùng string literal trực tiếp thay vì MediaLibrary.MediaType.photo
-                sortBy: ['creationTime'], // Dùng string literal trực tiếp thay vì MediaLibrary.SortBy.creationTime
+                mediaType: [MediaLibrary.MediaType.photo],
+                sortBy: [MediaLibrary.SortBy.creationTime],
             });
 
-            const fetchedAssets = assets.assets as unknown as DevicePhoto[];
-
             if (reset) {
-                setLibraryPhotos(fetchedAssets);
-                if (fetchedAssets.length > 0 && selectedImages.length === 0) {
-                    setSelectedImages([fetchedAssets[0].uri]);
+                setLibraryPhotos(assets.assets);
+                if (assets.assets.length > 0 && selectedImages.length === 0) {
+                    setSelectedImages([assets.assets[0].uri]);
                     setActiveImageIndex(0);
                 }
             } else {
-                setLibraryPhotos((prev) => [...prev, ...fetchedAssets]);
+                setLibraryPhotos((prev) => [...prev, ...assets.assets]);
             }
 
             setHasNextPage(assets.hasNextPage);
             setAfterCursor(assets.endCursor);
-        } catch {
+        } catch (error) {
+            console.error('Error loading media assets:', error);
             showAlert('Notice', 'Cannot load device photos directly. You can use Open Gallery.');
         } finally {
+            loadingRef.current = false;
             setIsLoadingPhotos(false);
         }
-    }, [isLoadingPhotos, hasNextPage, afterCursor, selectedImages.length]);
+    }, [hasNextPage, afterCursor, selectedImages.length]);
 
     useEffect(() => {
         loadDevicePhotos(true);
@@ -305,7 +299,7 @@ export default function CreatePostScreen() {
 
     return (
         <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-            {/* Header đồng bộ chuẩn dự án */}
+            {/* Header */}
             <View style={styles.headerContainer}>
                 <View style={styles.headerBar}>
                     <TouchableOpacity
@@ -368,7 +362,7 @@ export default function CreatePostScreen() {
                             </TouchableOpacity>
                         </View>
 
-                        {/* Hàng chọn ảnh: Camera + Danh sách ảnh từ máy */}
+                        {/* Hàng chọn ảnh: Camera + Danh sách ảnh */}
                         <View style={styles.gridContainer}>
                             <TouchableOpacity
                                 style={styles.cameraTileBtn}
@@ -394,7 +388,11 @@ export default function CreatePostScreen() {
                                     offset: (THUMB_SIZE + THUMB_GAP) * index,
                                     index,
                                 })}
-                                onEndReached={() => loadDevicePhotos()}
+                                onEndReached={() => {
+                                    if (libraryPhotos.length > 0 && !loadingRef.current && hasNextPage) {
+                                        loadDevicePhotos();
+                                    }
+                                }}
                                 onEndReachedThreshold={0.5}
                                 ListFooterComponent={
                                     isLoadingPhotos ? (
@@ -452,7 +450,7 @@ export default function CreatePostScreen() {
                         </View>
                     </ScrollView>
 
-                    {/* Nút nổi phía dưới */}
+                    {/* Nút Next nổi */}
                     <View style={[styles.bottomBarContainer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
                         <PrimaryButton
                             title="Next"
@@ -539,7 +537,7 @@ export default function CreatePostScreen() {
                         </View>
                     </ScrollView>
 
-                    {/* Nút nổi phía dưới */}
+                    {/* Nút Next nổi */}
                     <View style={[styles.bottomBarContainer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
                         <PrimaryButton
                             title="Next"
@@ -661,7 +659,7 @@ export default function CreatePostScreen() {
                         </View>
                     </ScrollView>
 
-                    {/* Nút nổi phía dưới */}
+                    {/* Nút Share nổi */}
                     <View style={[styles.bottomBarContainer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
                         <PrimaryButton
                             title="Share"
