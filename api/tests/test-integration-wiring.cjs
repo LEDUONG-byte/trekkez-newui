@@ -11,8 +11,8 @@ const tabs=read('app/(tabs)/_layout.tsx');
 assert.match(tabs, /getAuthSession\(/);
 assert.match(tabs, /if \(!authReady \|\| !authorized\) return null/);
 const rootLayout=read('app/_layout.tsx');
-assert.match(rootLayout, /useRootNavigationState/);
-assert.match(rootLayout, /if \(pathname === '\/'\)\s*\{\s*router\.replace\('\/onboarding'\)/);
+assert.doesNotMatch(rootLayout, /startupRedirectHandled|router\.replace\('\/onboarding'\)/);
+assert.match(read('app/(root)/index.tsx'), /<Redirect href="\/onboarding" \/>/);
 for(const [f,pattern] of [
   ['app/(tabs)/team.tsx',/loadTeamCards\(/],
   ['app/(tabs)/plan.tsx',/loadPlanCards\(/],
