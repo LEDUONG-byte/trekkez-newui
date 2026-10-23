@@ -25,21 +25,19 @@ export interface PlanItem {
     id: string;
     title: string;
     isOwnedByYou: boolean;
-    color: string;
     details?: string;
     startDate: string; // Định dạng ISO: YYYY-MM-DD
     createdAt: string; // Định dạng ISO: YYYY-MM-DD
 }
 
 // =====================================================================
-// MOCK DATA
+// MOCK DATA (Tất cả đều thuộc về người dùng)
 // =====================================================================
 const INITIAL_PLANS: PlanItem[] = [
     {
         id: 'p1',
         title: 'Plan A',
         isOwnedByYou: true,
-        color: '#BAE6FD',
         details: 'Lịch trình du lịch Đà Lạt 3 ngày 2 đêm cùng bạn bè',
         startDate: '2026-11-15',
         createdAt: '2026-08-01',
@@ -48,7 +46,6 @@ const INITIAL_PLANS: PlanItem[] = [
         id: 'p2',
         title: 'Plan B',
         isOwnedByYou: true,
-        color: '#BAE6FD',
         details: 'Chuyến cắm trại hồ Trị An',
         startDate: '2026-10-25',
         createdAt: '2026-09-10',
@@ -56,8 +53,7 @@ const INITIAL_PLANS: PlanItem[] = [
     {
         id: 'p3',
         title: 'Plan C',
-        isOwnedByYou: false,
-        color: '#FEF08A',
+        isOwnedByYou: true,
         details: 'Phượt Tây Bắc ngắm lúa chín',
         startDate: '2026-12-01',
         createdAt: '2026-07-20',
@@ -69,7 +65,6 @@ const INITIAL_ROUTES: PlanItem[] = [
         id: 'r1',
         title: 'route A',
         isOwnedByYou: true,
-        color: '#A7F3D0',
         details: 'Lộ trình đạp xe quanh Hồ Tây - 15km',
         startDate: '2026-10-22',
         createdAt: '2026-09-15',
@@ -234,19 +229,12 @@ export default function PlanScreen() {
 
                 <View style={styles.dashedLine} />
 
-                {/* --- LEGEND & FILTER BAR --- */}
+                {/* --- FILTER BAR --- */}
                 {!isEmpty && (
-                    <View style={styles.legendAndFilterRow}>
-                        <View style={styles.legendContainer}>
-                            <View style={styles.legendItem}>
-                                <View style={[styles.legendColorBox, { backgroundColor: subTab === 'PLAN' ? '#BAE6FD' : '#A7F3D0' }]} />
-                                <Text style={styles.legendText}>owned by you</Text>
-                            </View>
-                            <View style={styles.legendItem}>
-                                <View style={[styles.legendColorBox, { backgroundColor: subTab === 'PLAN' ? '#FEF08A' : '#DDD6FE' }]} />
-                                <Text style={styles.legendText}>owned by someone else</Text>
-                            </View>
-                        </View>
+                    <View style={styles.filterBarRow}>
+                        <Text style={styles.listCountText}>
+                            {filteredAndSortedList.length} {subTab.toLowerCase()}(s)
+                        </Text>
 
                         <TouchableOpacity
                             style={styles.filterBtn}
@@ -294,9 +282,10 @@ export default function PlanScreen() {
                                 key={item.id}
                                 id={item.id}
                                 title={item.title}
-                                isOwnedByYou={item.isOwnedByYou}
-                                headerColor={item.color}
+                                isOwnedByYou={true}
+                                headerColor="#FFFFFF"
                                 defaultExpanded={false}
+                                onTitlePress={() => handleItemPress(item)}
                             >
                                 <View style={styles.cardContentWrapper}>
                                     {item.details ? (
@@ -476,28 +465,15 @@ const styles = StyleSheet.create({
         width: '100%',
         marginBottom: 16,
     },
-    legendAndFilterRow: {
+    filterBarRow: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
         marginBottom: 16,
     },
-    legendContainer: {
-        gap: 4,
-    },
-    legendItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-    },
-    legendColorBox: {
-        width: 32,
-        height: 10,
-        borderRadius: 4,
-    },
-    legendText: {
-        fontFamily: 'GoogleSans-Regular',
-        fontSize: 12,
+    listCountText: {
+        fontFamily: 'GoogleSans-Medium',
+        fontSize: 13,
         color: '#64748B',
         includeFontPadding: false,
         textAlignVertical: 'center',

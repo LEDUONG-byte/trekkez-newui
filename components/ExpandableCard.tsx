@@ -5,29 +5,40 @@ import {
     Text,
     TouchableOpacity,
     LayoutAnimation,
+    Platform,
+    UIManager,
 } from 'react-native';
 import { Octicons } from '@expo/vector-icons';
+
+if (
+    Platform.OS === 'android' &&
+    UIManager.setLayoutAnimationEnabledExperimental
+) {
+    UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 export interface ExpandableCardProps {
     id: string;
     title: string;
-    iconName?: keyof typeof Octicons.glyphMap; // Cho phép truyền tên Icon linh hoạt từ DB
+    iconName?: keyof typeof Octicons.glyphMap; // Tên Icon linh hoạt từ DB hoặc props
     isOwnedByYou?: boolean;
     headerColor?: string;
     children?: React.ReactNode;
     defaultExpanded?: boolean;
-    onHeaderPress?: (id: string) => void; // Event Handler khi bấm vào thanh Header
+    onHeaderPress?: (id: string) => void; // Handler khi nhấn vào Header
+    onTitlePress?: (id?: string) => void;  // Alias handler tương thích với PlanScreen
 }
 
 export default function ExpandableCard({
                                            id,
                                            title,
-                                           iconName = 'question', // Mặc định nếu DB chưa trả về icon
+                                           iconName = 'bookmark',
                                            isOwnedByYou = true,
-                                           headerColor,
+                                           headerColor = '#FFFFFF',
                                            children,
                                            defaultExpanded = false,
                                            onHeaderPress,
+                                           onTitlePress,
                                        }: ExpandableCardProps) {
     const [isExpanded, setIsExpanded] = useState(defaultExpanded);
 
@@ -36,29 +47,36 @@ export default function ExpandableCard({
         setIsExpanded(!isExpanded);
     };
 
-    // Mặc định màu theo loại sở hữu nếu không truyền headerColor
-    const bgHeaderColor = headerColor || (isOwnedByYou ? '#BAE6FD' : '#FEF08A');
+    const handleHeaderPress = () => {
+        if (onTitlePress) {
+            onTitlePress(id);
+        } else if (onHeaderPress) {
+            onHeaderPress(id);
+        }
+    };
 
     return (
         <View style={styles.cardContainer}>
-            {/* Header Ngăn kéo - Bấm vào vùng thanh để gọi Action / Navigate */}
+            {/* Header Ngăn kéo - Bấm vào thanh để chuyển trang Manage */}
             <TouchableOpacity
                 style={[
                     styles.header,
-                    { backgroundColor: bgHeaderColor },
+                    { backgroundColor: headerColor },
                     isExpanded ? styles.headerExpanded : styles.headerCollapsed,
                 ]}
                 activeOpacity={0.85}
-                onPress={() => onHeaderPress?.(id)}
+                onPress={handleHeaderPress}
             >
                 <View style={styles.headerLeft}>
                     <View style={styles.circleIcon}>
-                        <Octicons name={iconName} size={16} color="#64748B" />
+                        <Octicons name={iconName} size={16} color="#0F172A" />
                     </View>
-                    <Text style={styles.headerTitle}>{title}</Text>
+                    <Text style={styles.headerTitle} numberOfLines={1}>
+                        {title}
+                    </Text>
                 </View>
 
-                {/* Tách riêng nút Icon Dấu cộng/trừ để chỉ xử lý đóng/mở Ngăn kéo */}
+                {/* Nút Dấu cộng/trừ để đóng/mở nội dung ngăn kéo */}
                 <TouchableOpacity
                     style={styles.toggleBtn}
                     activeOpacity={0.6}
@@ -102,6 +120,8 @@ const styles = StyleSheet.create({
         paddingHorizontal: 16,
         paddingVertical: 14,
         borderRadius: 14,
+        borderWidth: 1,
+        borderColor: '#E2E8F0',
     },
     headerCollapsed: {
         borderRadius: 14,
@@ -111,18 +131,20 @@ const styles = StyleSheet.create({
         borderTopRightRadius: 14,
         borderBottomLeftRadius: 0,
         borderBottomRightRadius: 0,
+        borderBottomWidth: 0,
     },
     headerLeft: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 12,
         flex: 1,
+        paddingRight: 8,
     },
     circleIcon: {
         width: 32,
         height: 32,
         borderRadius: 16,
-        backgroundColor: '#FFFFFF',
+        backgroundColor: '#F1F5F9',
         justifyContent: 'center',
         alignItems: 'center',
     },
@@ -131,6 +153,7 @@ const styles = StyleSheet.create({
         fontSize: 15,
         color: '#0F172A',
         includeFontPadding: false,
+        flex: 1,
     },
     toggleBtn: {
         padding: 4,
@@ -144,9 +167,9 @@ const styles = StyleSheet.create({
         borderTopWidth: 0,
         borderBottomLeftRadius: 14,
         borderBottomRightRadius: 14,
-        backgroundColor: '#FAFDF8',
+        backgroundColor: '#FFFFFF',
         padding: 16,
-        minHeight: 120,
+        minHeight: 100,
     },
     placeholderContent: {
         flex: 1,
