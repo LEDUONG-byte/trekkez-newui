@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
     StyleSheet,
     View,
@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Octicons } from '@expo/vector-icons';
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { loadPlanWizardOptions } from '../api/integration/newui-gateway';
 import { createRemotePlan } from '../api/services/plan/plan-team-supabase';
 import { getAuthSession } from '../api/services/auth/auth-session';
@@ -133,6 +133,7 @@ const maskTimeInput = (text: string) => {
 };
 
 export default function MakeAPlanScreen() {
+    const { createdRouteId } = useLocalSearchParams<{ createdRouteId?: string }>();
     const [currentStepIndex, setCurrentStepIndex] = useState(0);
     const step = WIZARD_STEPS[currentStepIndex];
 
@@ -141,7 +142,6 @@ export default function MakeAPlanScreen() {
     const [availableTeams, setAvailableTeams] = useState<{ id: string; name: string }[]>([]);
     const [saveError, setSaveError] = useState('');
     const [saving, setSaving] = useState(false);
-    const [isCreatingNewRoute, setIsCreatingNewRoute] = useState(false);
     const [routeSortBy, setRouteSortBy] = useState<SortOption>('name');
     const [isMenuVisible, setIsMenuVisible] = useState<boolean>(false);
 
@@ -196,6 +196,16 @@ export default function MakeAPlanScreen() {
         }
     }, []);
     useFocusEffect(useCallback(() => { void loadOptions(); }, [loadOptions]));
+    useEffect(() => {
+        if (!createdRouteId || availableRoutes.length === 0) return;
+        const createdRoute = availableRoutes.find((route) => route.id === createdRouteId);
+        if (createdRoute) {
+            setSelectedRouteId(createdRoute.id);
+            router.setParams({ createdRouteId: undefined });
+        } else {
+            setSaveError('Route đã được lưu nhưng chưa xuất hiện trong danh sách. Hãy kiểm tra quyền đọc Route trên Supabase.');
+        }
+    }, [createdRouteId, availableRoutes]);
 
     const flatEquipmentList = useMemo(() => {
         const list: EquipmentItem[] = [];
@@ -279,7 +289,7 @@ export default function MakeAPlanScreen() {
     };
     const goNext = () => {
         if (step === 'CHOOSE_ROUTE' && !selectedRouteId) {
-            showError('Chưa có Route đã lưu trên Supabase. Tạo Plan cần một Route thật; màn hình Make a Route hiện chưa hỗ trợ lưu Route.');
+            showError('Chưa có Route đã lưu trên Supabase. Hãy chọn Route hoặc tạo Route mới trước khi tiếp tục.');
             return;
         }
         if (step === 'NOTE') { void savePlan(); return; }
@@ -363,7 +373,10 @@ export default function MakeAPlanScreen() {
                         <TouchableOpacity
                             style={styles.newRouteBtn}
                             activeOpacity={0.7}
-                            onPress={() => setIsCreatingNewRoute(!isCreatingNewRoute)}
+                            onPress={() => router.push({
+                                pathname: '/makearoute',
+                                params: { returnToPlan: 'true' },
+                            })}
                         >
                             <Octicons name="plus-circle" size={20} color="#94A3B8" />
                             <Text style={styles.newRouteText}>New route ?</Text>

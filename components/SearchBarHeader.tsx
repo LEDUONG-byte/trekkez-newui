@@ -16,6 +16,7 @@ export interface SearchBarHeaderProps {
     onSearchQueryChange: (query: string) => void;
     onStartSearch: () => void;
     onCancelSearch: () => void;
+    onNotificationsPress?: () => void;
     placeholder?: string;
     containerStyle?: ViewStyle;
 }
@@ -27,6 +28,7 @@ export default function SearchBarHeader({
                                             onSearchQueryChange,
                                             onStartSearch,
                                             onCancelSearch,
+                                            onNotificationsPress,
                                             placeholder = 'Search...',
                                             containerStyle,
                                         }: SearchBarHeaderProps) {
@@ -82,6 +84,16 @@ export default function SearchBarHeader({
         <View style={[styles.headerBar, containerStyle]}>
             <Text style={styles.headerTitle}>{title}</Text>
             <View style={styles.headerRightBtns}>
+                {onNotificationsPress ? (
+                    <TouchableOpacity
+                        style={styles.circleHeaderBtn}
+                        activeOpacity={0.7}
+                        accessibilityLabel="Notifications"
+                        onPress={onNotificationsPress}
+                    >
+                        <Octicons name="bell" size={18} color="#0F172A" />
+                    </TouchableOpacity>
+                ) : null}
                 <TouchableOpacity
                     style={styles.circleHeaderBtn}
                     activeOpacity={0.7}

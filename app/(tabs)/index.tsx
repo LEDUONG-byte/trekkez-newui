@@ -13,6 +13,7 @@ import { Octicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { getCurrentViewerId, loadExploreFeed, loadFollowingAuthorIds } from '../../api/integration/newui-gateway';
 import { setRemoteCommunityLike, setRemoteCommunitySave } from '../../api/services/community/community-supabase';
+import { deleteRemoteCommunityPost } from '../../api/services/community/community-post-actions';
 import { setUserFollowing } from '../../api/services/community/social-supabase';
 
 import PostCard, { PostCardProps } from '../../components/PostCard';
@@ -136,6 +137,15 @@ export default function HomeScreen() {
         }
     };
 
+    const handleDeletePost = async (item: Extract<FeedItem, { itemType: 'POST' }>) => {
+        if (!item.isOwnPost) {
+            throw new Error('Bạn chỉ có thể xóa bài viết của chính mình.');
+        }
+        const viewerId = await getCurrentViewerId();
+        await deleteRemoteCommunityPost(item.id, viewerId);
+        setFeedItems((current) => current.filter((feedItem) => feedItem.id !== item.id));
+    };
+
     const handleCancelSearch = () => {
         setSearchQuery('');
         setIsSearchActive(false);
@@ -157,6 +167,7 @@ export default function HomeScreen() {
                     onSearchQueryChange={setSearchQuery}
                     onStartSearch={() => setIsSearchActive(true)}
                     onCancelSearch={handleCancelSearch}
+                    onNotificationsPress={() => router.push('/notifications')}
                 />
             </View>
 
@@ -221,6 +232,8 @@ export default function HomeScreen() {
                 <PostCard
                     key={`${item.id}-${renderVersion}`}
                     {...item}
+                    showPostOptions={item.isOwnPost}
+                    onDeletePress={() => handleDeletePost(item)}
                     onLikePress={() => { void handlePostAction(item, 'like'); }}
                     onBookmarkPress={() => { void handlePostAction(item, 'save'); }}
                     onFollowPress={() => { void handleToggleFollow(item); }}

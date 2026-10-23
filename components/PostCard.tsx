@@ -8,8 +8,11 @@ import {
     FlatList,
     Dimensions,
     ImageSourcePropType,
+    Modal,
+    TouchableWithoutFeedback,
 } from 'react-native';
 import { Octicons } from '@expo/vector-icons';
+import ConfirmModal from './ConfirmModal';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -19,7 +22,9 @@ export interface PostData {
     username?: string;
     isFollowing?: boolean;
     showFollowButton?: boolean;
+    showPostOptions?: boolean;
     onFollowPress?: () => void;
+    onDeletePress?: () => Promise<void>;
     images?: (ImageSourcePropType | string)[];
     tags?: string[];
     likeCount?: number;
@@ -45,7 +50,9 @@ export default function PostCard(props: PostCardProps) {
         username = data.username ?? 'user',
         isFollowing = data.isFollowing ?? false,
         showFollowButton = data.showFollowButton ?? true,
+        showPostOptions = data.showPostOptions ?? false,
         onFollowPress = data.onFollowPress,
+        onDeletePress = data.onDeletePress,
         images = data.images ?? [],
         tags = data.tags ?? [],
         likeCount = data.likeCount ?? 0,
@@ -64,6 +71,10 @@ export default function PostCard(props: PostCardProps) {
     const [likeNum, setLikeNum] = useState(likeCount);
     const [isBookmarked, setIsBookmarked] = useState(initialIsBookmarked);
     const [following, setFollowing] = useState(isFollowing);
+    const [optionsVisible, setOptionsVisible] = useState(false);
+    const [deleteConfirmationVisible, setDeleteConfirmationVisible] = useState(false);
+    const [deleting, setDeleting] = useState(false);
+    const [deleteError, setDeleteError] = useState('');
 
     const handleFollow = () => {
         setFollowing((prev) => !prev);
@@ -79,6 +90,22 @@ export default function PostCard(props: PostCardProps) {
     const handleBookmark = () => {
         setIsBookmarked((prev) => !prev);
         if (onBookmarkPress) onBookmarkPress();
+    };
+
+    const handleDeletePost = async () => {
+        if (deleting || !onDeletePress) return;
+        setDeleting(true);
+        setDeleteError('');
+        try {
+            await onDeletePress();
+            setOptionsVisible(false);
+            setDeleteConfirmationVisible(false);
+            setDeleteError('');
+        } catch (error) {
+            setDeleteError(error instanceof Error ? error.message : String(error));
+        } finally {
+            setDeleting(false);
+        }
     };
 
     const safeImages = Array.isArray(images) ? images : [];
@@ -100,18 +127,88 @@ export default function PostCard(props: PostCardProps) {
                     <Text style={styles.username}>@{username}</Text>
                 </View>
 
-                {showFollowButton ? (
-                    <TouchableOpacity
-                        style={[styles.followButton, following && styles.followingButton]}
-                        activeOpacity={0.7}
-                        onPress={handleFollow}
-                    >
-                        <Text style={[styles.followText, following && styles.followingText]}>
-                            {following ? 'Following' : 'Follow'}
-                        </Text>
-                    </TouchableOpacity>
-                ) : null}
+                <View style={styles.headerActions}>
+                    {showFollowButton ? (
+                        <TouchableOpacity
+                            style={[styles.followButton, following && styles.followingButton]}
+                            activeOpacity={0.7}
+                            onPress={handleFollow}
+                        >
+                            <Text style={[styles.followText, following && styles.followingText]}>
+                                {following ? 'Following' : 'Follow'}
+                            </Text>
+                        </TouchableOpacity>
+                    ) : null}
+                    {showPostOptions ? (
+                        <TouchableOpacity
+                            accessibilityLabel="Post options"
+                            style={styles.postOptionsButton}
+                            activeOpacity={0.7}
+                            onPress={() => {
+                                setDeleteError('');
+                                setOptionsVisible(true);
+                            }}
+                        >
+                            <Octicons name="kebab-horizontal" size={18} color="#0F172A" />
+                        </TouchableOpacity>
+                    ) : null}
+                </View>
             </View>
+
+            <Modal
+                visible={optionsVisible}
+                transparent
+                animationType="fade"
+                onRequestClose={() => {
+                    if (!deleting) setOptionsVisible(false);
+                }}
+            >
+                <View style={styles.optionsBackdrop}>
+                <TouchableWithoutFeedback
+                    onPress={() => {
+                        if (!deleting) setOptionsVisible(false);
+                    }}
+                >
+                    <View style={StyleSheet.absoluteFill} />
+                </TouchableWithoutFeedback>
+                <TouchableWithoutFeedback>
+                    <View style={styles.optionsSheet}>
+                        <TouchableOpacity
+                            style={styles.deleteMenuOption}
+                            onPress={() => {
+                                setOptionsVisible(false);
+                                setDeleteError('');
+                                setDeleteConfirmationVisible(true);
+                            }}
+                        >
+                            <Octicons name="trash" size={18} color="#DC2626" />
+                            <Text style={styles.deleteMenuText}>Delete post</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={styles.cancelOption}
+                            onPress={() => setOptionsVisible(false)}
+                        >
+                            <Text style={styles.cancelOptionText}>Cancel</Text>
+                        </TouchableOpacity>
+                    </View>
+                </TouchableWithoutFeedback>
+                </View>
+            </Modal>
+            <ConfirmModal
+                visible={deleteConfirmationVisible}
+                title="Delete this post?"
+                content={deleteError || 'This post will be removed from the feed.'}
+                cancelText="Cancel"
+                confirmText={deleting ? 'Deleting...' : 'Delete post'}
+                destructive
+                onCancel={() => {
+                    if (!deleting) {
+                        setDeleteConfirmationVisible(false);
+                        setDeleteError('');
+                    }
+                }}
+                onConfirm={() => { void handleDeletePost(); }}
+            />
 
             {/* Media Section: Image Carousel tràn sát 2 mép màn hình */}
             <View style={styles.mediaContainer}>
@@ -234,6 +331,12 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 10,
+        flex: 1,
+    },
+    headerActions: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
     },
     avatar: {
         width: 38,
@@ -274,6 +377,48 @@ const styles = StyleSheet.create({
         color: '#858893',
         includeFontPadding: false,
         textAlignVertical: 'center',
+    },
+    postOptionsButton: {
+        width: 36,
+        height: 36,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: 18,
+    },
+    optionsBackdrop: {
+        flex: 1,
+        justifyContent: 'flex-end',
+        backgroundColor: 'rgba(15, 23, 42, 0.4)',
+        paddingHorizontal: 16,
+        paddingBottom: 24,
+    },
+    optionsSheet: {
+        paddingHorizontal: 18,
+        paddingTop: 18,
+        paddingBottom: 10,
+        borderRadius: 20,
+        backgroundColor: '#FFFFFF',
+    },
+    deleteMenuOption: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        paddingVertical: 15,
+    },
+    deleteMenuText: {
+        color: '#DC2626',
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 15,
+    },
+    cancelOption: {
+        minHeight: 46,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    cancelOptionText: {
+        color: '#334155',
+        fontFamily: 'GoogleSans-Medium',
+        fontSize: 14,
     },
     // Media Container tràn sát 2 bên mép màn hình
     mediaContainer: {

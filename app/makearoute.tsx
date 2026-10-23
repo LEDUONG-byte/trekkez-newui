@@ -13,10 +13,11 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Octicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import Mapbox from '@rnmapbox/maps';
 import * as Location from 'expo-location';
 import { saveRemoteRoute } from '../api/services/route/route-write';
+import PrimaryButton from '../components/PrimaryButton';
 
 const MAPBOX_KEY = process.env.EXPO_PUBLIC_MAPBOX_KEY;
 if (MAPBOX_KEY) {
@@ -33,6 +34,7 @@ interface WaypointItem {
 
 export default function MakeARouteScreen() {
     const router = useRouter();
+    const { returnToPlan } = useLocalSearchParams<{ returnToPlan?: string }>();
     const cameraRef = useRef<any>(null);
     const insets = useSafeAreaInsets();
 
@@ -42,6 +44,8 @@ export default function MakeARouteScreen() {
     const [waypointMode, setWaypointMode] = useState<'along' | 'end'>('along');
     const [isCalculatingRoute, setIsCalculatingRoute] = useState(false);
     const [isSavingRoute, setIsSavingRoute] = useState(false);
+    const [isNameRouteModalVisible, setIsNameRouteModalVisible] = useState(false);
+    const [routeName, setRouteName] = useState('');
 
     const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
 
@@ -290,6 +294,7 @@ export default function MakeARouteScreen() {
     const handleResetRoute = () => {
         setStartLocationText('Current location');
         setDestinationText('');
+        setRouteName('');
         setDestinationPoint(null);
         setWaypointsList([]);
         setRouteGeometry([]);
@@ -315,6 +320,15 @@ export default function MakeARouteScreen() {
 
     const handleSave = async () => {
         if (isSavingRoute) return;
+        const trimmedName = routeName.trim();
+        if (!trimmedName) {
+            if (Platform.OS === 'web' && typeof window !== 'undefined') {
+                window.alert('Nhập tên cho Route trước khi lưu.');
+            } else {
+                Alert.alert('Thiếu tên Route', 'Nhập tên cho Route trước khi lưu.');
+            }
+            return;
+        }
         setIsSavingRoute(true);
         try {
             if (!startPoint || !destinationPoint) {
@@ -324,12 +338,9 @@ export default function MakeARouteScreen() {
                 const random = Math.floor(Math.random() * 16);
                 return (character === 'x' ? random : ((random & 0x3) | 0x8)).toString(16);
             });
-            const name = [startLocationText.trim(), destinationText.trim()]
-                .filter(Boolean)
-                .join(' - ') || 'Route của tôi';
             await saveRemoteRoute({
                 id,
-                name,
+                name: trimmedName,
                 start: startPoint.coordinate,
                 destination: destinationPoint.coordinate,
                 stops: waypointsList.map((point) => point.coordinate),
@@ -337,7 +348,11 @@ export default function MakeARouteScreen() {
                 distanceMeters: routeStats.distance,
                 durationSeconds: routeStats.duration * 60,
             });
-            router.back();
+            if (returnToPlan === 'true') {
+                router.navigate({ pathname: '/makeaplan', params: { createdRouteId: id } });
+            } else {
+                router.back();
+            }
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             if (Platform.OS === 'web' && typeof window !== 'undefined') window.alert(message);
@@ -500,7 +515,11 @@ export default function MakeARouteScreen() {
                             <TouchableOpacity
                                 style={styles.saveRouteBtn}
                                 activeOpacity={0.85}
-                                onPress={handleSave}
+                                onPress={() => {
+                                    setRouteName('');
+                                    setIsNameRouteModalVisible(true);
+                                }}
+                                disabled={isSavingRoute}
                             >
                                 <Text style={styles.saveRouteBtnText}>Save</Text>
                             </TouchableOpacity>
@@ -747,6 +766,61 @@ export default function MakeARouteScreen() {
                     </View>
                 </TouchableWithoutFeedback>
             </Modal>
+
+            <Modal
+                visible={isNameRouteModalVisible}
+                transparent
+                animationType="fade"
+                onRequestClose={() => {
+                    if (!isSavingRoute) setIsNameRouteModalVisible(false);
+                }}
+            >
+                <View style={styles.nameRouteBackdrop}>
+                    <TouchableWithoutFeedback
+                        onPress={() => {
+                            if (!isSavingRoute) setIsNameRouteModalVisible(false);
+                        }}
+                    >
+                        <View style={StyleSheet.absoluteFill} />
+                    </TouchableWithoutFeedback>
+                    <View style={styles.nameRouteDialog}>
+                        <Text style={styles.nameRouteTitle}>Name your Route</Text>
+                        <Text style={styles.nameRouteDescription}>
+                            Give this route a name so you can find it later.
+                        </Text>
+                        <TextInput
+                            style={styles.nameRouteInput}
+                            placeholder="Enter route name"
+                            placeholderTextColor="#94A3B8"
+                            value={routeName}
+                            onChangeText={setRouteName}
+                            maxLength={80}
+                            autoFocus
+                            returnKeyType="done"
+                            onSubmitEditing={() => { void handleSave(); }}
+                            editable={!isSavingRoute}
+                        />
+                        <View style={styles.nameRouteActions}>
+                            <TouchableOpacity
+                                style={styles.nameRouteCancelButton}
+                                onPress={() => setIsNameRouteModalVisible(false)}
+                                disabled={isSavingRoute}
+                            >
+                                <Text style={styles.nameRouteCancelText}>Cancel</Text>
+                            </TouchableOpacity>
+                            <PrimaryButton
+                                title={isSavingRoute ? 'Saving...' : 'Save Route'}
+                                style={[
+                                    styles.nameRouteSaveButton,
+                                    (!routeName.trim() || isSavingRoute) && styles.nameRouteSaveDisabled,
+                                ]}
+                                onPress={() => { void handleSave(); }}
+                                disabled={!routeName.trim() || isSavingRoute}
+                            />
+                        </View>
+                    </View>
+                </View>
+            </Modal>
         </View>
     );
 }
@@ -814,6 +888,76 @@ const styles = StyleSheet.create({
         color: '#FFFFFF',
         includeFontPadding: false,
         textAlignVertical: 'center',
+    },
+    nameRouteBackdrop: {
+        flex: 1,
+        justifyContent: 'center',
+        paddingHorizontal: 24,
+        backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    },
+    nameRouteDialog: {
+        padding: 22,
+        borderRadius: 22,
+        backgroundColor: '#FFFFFF',
+    },
+    nameRouteTitle: {
+        color: '#0F172A',
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 19,
+        textAlign: 'center',
+    },
+    nameRouteDescription: {
+        color: '#64748B',
+        fontFamily: 'GoogleSans-Regular',
+        fontSize: 13,
+        lineHeight: 19,
+        textAlign: 'center',
+        marginTop: 7,
+        marginBottom: 18,
+    },
+    nameRouteInput: {
+        minHeight: 48,
+        paddingHorizontal: 14,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#CBD5E1',
+        color: '#0F172A',
+        fontFamily: 'GoogleSans-Medium',
+        fontSize: 14,
+    },
+    nameRouteActions: {
+        flexDirection: 'row',
+        gap: 10,
+        marginTop: 18,
+    },
+    nameRouteCancelButton: {
+        flex: 1,
+        minHeight: 46,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: 12,
+        backgroundColor: '#F1F5F9',
+    },
+    nameRouteCancelText: {
+        color: '#475569',
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 14,
+    },
+    nameRouteSaveButton: {
+        flex: 1,
+        minHeight: 46,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: 12,
+        backgroundColor: '#207BFB',
+    },
+    nameRouteSaveDisabled: {
+        opacity: 0.55,
+    },
+    nameRouteSaveText: {
+        color: '#FFFFFF',
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 14,
     },
     circleBtn: {
         width: 48,
