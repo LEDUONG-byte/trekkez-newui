@@ -163,7 +163,7 @@ export default function SettingScreen() {
                 {/* --- VERSION INFO --- */}
                 <View style={styles.versionRow}>
                     <Octicons name="briefcase" size={16} color="#94A3B8" />
-                    <Text style={styles.versionText}>v1.2.3 (w1.15.4)</Text>
+                    <Text style={styles.versionText}>v0.0.2 (on-dev-beta)</Text>
                 </View>
             </ScrollView>
         </SafeAreaView>

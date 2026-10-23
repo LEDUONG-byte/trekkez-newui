@@ -19,6 +19,7 @@ import { Octicons, Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library/legacy';
+import * as Location from 'expo-location';
 import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
 
 import PrimaryButton from '../components/PrimaryButton';
@@ -54,10 +55,12 @@ const FILTER_PRESETS: FilterOption[] = [
 ];
 
 const SUGGESTED_LOCATIONS = [
-    'Ho Chi Minh City, Vietnam',
-    'Da Lat, Lam Dong',
     'Ta Nang - Phan Dung',
     'Fansipan Summit',
+    'Langbiang Peak, Da Lat',
+    'Bidoup Nui Ba National Park',
+    'Ba Den Mountain, Tay Ninh',
+    'Ho Chi Minh City, Vietnam',
 ];
 
 export default function CreatePostScreen() {
@@ -66,14 +69,19 @@ export default function CreatePostScreen() {
 
     const [currentStep, setCurrentStep] = useState<Step>('SELECT');
     const [selectedImages, setSelectedImages] = useState<string[]>([]);
-    const [activeImageIndex, setActiveImageIndex] = useState<number>(0);
+    const [activeImageUri, setActiveImageUri] = useState<string | null>(null);
 
     // Media Library States
     const [libraryPhotos, setLibraryPhotos] = useState<MediaLibrary.Asset[]>([]);
     const [hasNextPage, setHasNextPage] = useState<boolean>(true);
     const [afterCursor, setAfterCursor] = useState<string | undefined>(undefined);
     const [isLoadingPhotos, setIsLoadingPhotos] = useState<boolean>(false);
+    const [isLimitedAccess, setIsLimitedAccess] = useState<boolean>(false);
     const loadingRef = useRef<boolean>(false);
+
+    // Location States
+    const [selectedLocation, setSelectedLocation] = useState<string>('');
+    const [isLocating, setIsLocating] = useState<boolean>(false);
 
     // Custom Alert State
     const [alertConfig, setAlertConfig] = useState<AlertState>({
@@ -113,7 +121,6 @@ export default function CreatePostScreen() {
 
     // Details State
     const [caption, setCaption] = useState<string>('');
-    const [selectedLocation, setSelectedLocation] = useState<string>('');
     const [isPublic, setIsPublic] = useState<boolean>(true);
 
     // Load ảnh từ thiết bị
@@ -125,18 +132,21 @@ export default function CreatePostScreen() {
             loadingRef.current = true;
             setIsLoadingPhotos(true);
 
-            // Xin quyền đọc thư viện (false = xin quyền READ chứ không chỉ WRITE)
-            const { status, canAskAgain } = await MediaLibrary.getPermissionsAsync(false);
-            let finalStatus = status;
-
-            if (status !== 'granted') {
-                const req = await MediaLibrary.requestPermissionsAsync(false);
-                finalStatus = req.status;
-            }
+            const permission = await MediaLibrary.getPermissionsAsync(false);
+            let finalStatus = permission.status;
+            let accessPrivileges = permission.accessPrivileges;
 
             if (finalStatus !== 'granted') {
-                if (!canAskAgain) {
-                    showAlert('Permission Required', 'Please enable media library access in app settings to view photos.');
+                const req = await MediaLibrary.requestPermissionsAsync(false);
+                finalStatus = req.status;
+                accessPrivileges = req.accessPrivileges;
+            }
+
+            setIsLimitedAccess(accessPrivileges === 'limited');
+
+            if (finalStatus !== 'granted' && accessPrivileges !== 'limited') {
+                if (!permission.canAskAgain) {
+                    showAlert('Permission Required', 'Please enable photo permissions in settings to view device photos.');
                 }
                 return;
             }
@@ -151,8 +161,7 @@ export default function CreatePostScreen() {
             if (reset) {
                 setLibraryPhotos(assets.assets);
                 if (assets.assets.length > 0 && selectedImages.length === 0) {
-                    setSelectedImages([assets.assets[0].uri]);
-                    setActiveImageIndex(0);
+                    setActiveImageUri(assets.assets[0].uri);
                 }
             } else {
                 setLibraryPhotos((prev) => [...prev, ...assets.assets]);
@@ -173,6 +182,60 @@ export default function CreatePostScreen() {
         loadDevicePhotos(true);
     }, []);
 
+    // Lấy vị trí GPS hiện tại
+    const handleGetCurrentLocation = async () => {
+        try {
+            setIsLocating(true);
+            const { status } = await Location.requestForegroundPermissionsAsync();
+            if (status !== 'granted') {
+                showAlert('Permission Denied', 'Location permission is required to detect your current position.');
+                setIsLocating(false);
+                return;
+            }
+
+            const position = await Location.getCurrentPositionAsync({
+                accuracy: Location.Accuracy.Balanced,
+            });
+
+            const [geocode] = await Location.reverseGeocodeAsync({
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude,
+            });
+
+            if (geocode) {
+                const parts = [
+                    geocode.name,
+                    geocode.district || geocode.subregion,
+                    geocode.city || geocode.region,
+                ].filter(Boolean);
+
+                const locationStr = parts.length > 0
+                    ? parts.join(', ')
+                    : `${position.coords.latitude.toFixed(4)}, ${position.coords.longitude.toFixed(4)}`;
+                setSelectedLocation(locationStr);
+            } else {
+                setSelectedLocation(`${position.coords.latitude.toFixed(4)}, ${position.coords.longitude.toFixed(4)}`);
+            }
+        } catch {
+            showAlert('GPS Error', 'Unable to detect location. Please check your GPS settings.');
+        } finally {
+            setIsLocating(false);
+        }
+    };
+
+    const handleManageLimitedPhotos = async () => {
+        try {
+            if (MediaLibrary.presentPermissionsPickerAsync) {
+                await MediaLibrary.presentPermissionsPickerAsync();
+                loadDevicePhotos(true);
+            } else {
+                handlePickFromLibrary();
+            }
+        } catch {
+            handlePickFromLibrary();
+        }
+    };
+
     const handlePickFromLibrary = async () => {
         try {
             const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -190,8 +253,11 @@ export default function CreatePostScreen() {
 
             if (!result.canceled && result.assets && result.assets.length > 0) {
                 const uris = result.assets.map((asset) => asset.uri);
-                setSelectedImages((prev) => Array.from(new Set([...uris, ...prev])));
-                setActiveImageIndex(0);
+                setSelectedImages((prev) => {
+                    const combined = Array.from(new Set([...uris, ...prev]));
+                    return combined.slice(0, 10);
+                });
+                setActiveImageUri(uris[0]);
             }
         } catch {
             showAlert('Error', 'Image picker native module is not linked. Please rebuild your app.');
@@ -200,18 +266,10 @@ export default function CreatePostScreen() {
 
     const handleToggleSelectPhoto = (uri: string) => {
         if (selectedImages.includes(uri)) {
-            const index = selectedImages.indexOf(uri);
-            if (selectedImages.length === 1) {
-                setSelectedImages([]);
-                setActiveImageIndex(0);
-                return;
-            }
             const updated = selectedImages.filter((u) => u !== uri);
             setSelectedImages(updated);
-            if (activeImageIndex >= updated.length) {
-                setActiveImageIndex(Math.max(0, updated.length - 1));
-            } else if (activeImageIndex === index) {
-                setActiveImageIndex(0);
+            if (activeImageUri === uri) {
+                setActiveImageUri(updated.length > 0 ? updated[0] : null);
             }
         } else {
             if (selectedImages.length >= 10) {
@@ -219,7 +277,15 @@ export default function CreatePostScreen() {
                 return;
             }
             setSelectedImages((prev) => [...prev, uri]);
-            setActiveImageIndex(selectedImages.length);
+            setActiveImageUri(uri);
+        }
+    };
+
+    const handleRemoveSelectedImage = (uri: string) => {
+        const updated = selectedImages.filter((u) => u !== uri);
+        setSelectedImages(updated);
+        if (activeImageUri === uri) {
+            setActiveImageUri(updated.length > 0 ? updated[0] : null);
         }
     };
 
@@ -239,8 +305,8 @@ export default function CreatePostScreen() {
             try {
                 const photo = await cameraRef.current.takePictureAsync({ quality: 0.85 });
                 if (photo?.uri) {
-                    setSelectedImages((prev) => [photo.uri, ...prev]);
-                    setActiveImageIndex(0);
+                    setSelectedImages((prev) => [...prev, photo.uri]);
+                    setActiveImageUri(photo.uri);
                     setIsCameraActive(false);
                 }
             } catch {
@@ -256,6 +322,9 @@ export default function CreatePostScreen() {
         }
 
         if (currentStep === 'SELECT') {
+            if (!activeImageUri || !selectedImages.includes(activeImageUri)) {
+                setActiveImageUri(selectedImages[0]);
+            }
             setCurrentStep('EDIT');
         } else if (currentStep === 'EDIT') {
             setCurrentStep('DETAILS');
@@ -273,6 +342,10 @@ export default function CreatePostScreen() {
     };
 
     const handleSharePost = () => {
+        if (selectedImages.length === 0) {
+            showAlert('Notice', 'Please select at least one photo before sharing.');
+            return;
+        }
         showAlert('Published', 'Your post has been successfully shared!', 'OK', () => {
             router.back();
         });
@@ -292,10 +365,7 @@ export default function CreatePostScreen() {
     };
 
     const currentFilterObj = FILTER_PRESETS.find((f) => f.id === selectedFilter) || FILTER_PRESETS[0];
-
-    const currentPreviewUri = selectedImages.length > 0 && selectedImages[activeImageIndex]
-        ? selectedImages[activeImageIndex]
-        : libraryPhotos[0]?.uri;
+    const currentPreviewUri = activeImageUri || (selectedImages.length > 0 ? selectedImages[0] : null);
 
     return (
         <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
@@ -351,7 +421,17 @@ export default function CreatePostScreen() {
                                         <Text style={styles.selectedCountText}>{selectedImages.length}/10</Text>
                                     </View>
                                 )}
+                                {isLimitedAccess && (
+                                    <TouchableOpacity
+                                        style={styles.manageAccessBtn}
+                                        activeOpacity={0.7}
+                                        onPress={handleManageLimitedPhotos}
+                                    >
+                                        <Text style={styles.manageAccessText}>Manage</Text>
+                                    </TouchableOpacity>
+                                )}
                             </View>
+
                             <TouchableOpacity
                                 style={styles.openPickerBtn}
                                 activeOpacity={0.8}
@@ -404,8 +484,7 @@ export default function CreatePostScreen() {
                                 renderItem={({ item }) => {
                                     const isSelected = selectedImages.includes(item.uri);
                                     const selectOrder = selectedImages.indexOf(item.uri) + 1;
-                                    const isCurrentActive =
-                                        selectedImages[activeImageIndex] === item.uri;
+                                    const isCurrentActive = activeImageUri === item.uri;
 
                                     return (
                                         <TouchableOpacity
@@ -414,14 +493,8 @@ export default function CreatePostScreen() {
                                                 isSelected && styles.thumbnailSelected,
                                                 isCurrentActive && styles.thumbnailActivePreview,
                                             ]}
-                                            activeOpacity={0.8}
-                                            onPress={() => {
-                                                if (isSelected) {
-                                                    setActiveImageIndex(selectedImages.indexOf(item.uri));
-                                                } else {
-                                                    handleToggleSelectPhoto(item.uri);
-                                                }
-                                            }}
+                                            activeOpacity={0.85}
+                                            onPress={() => setActiveImageUri(item.uri)}
                                         >
                                             <Image
                                                 source={{ uri: item.uri }}
@@ -435,7 +508,7 @@ export default function CreatePostScreen() {
                                                     isSelected && styles.selectBadgeActive,
                                                 ]}
                                                 onPress={() => handleToggleSelectPhoto(item.uri)}
-                                                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                                             >
                                                 {isSelected ? (
                                                     <Text style={styles.selectBadgeNum}>{selectOrder}</Text>
@@ -450,7 +523,6 @@ export default function CreatePostScreen() {
                         </View>
                     </ScrollView>
 
-                    {/* Nút Next nổi */}
                     <View style={[styles.bottomBarContainer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
                         <PrimaryButton
                             title="Next"
@@ -465,11 +537,13 @@ export default function CreatePostScreen() {
                 <View style={styles.stepContainer}>
                     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.stepScrollContent}>
                         <View style={styles.editPreviewWrapper}>
-                            <Image
-                                source={{ uri: selectedImages[activeImageIndex] }}
-                                style={styles.editPreviewImage}
-                                resizeMode="cover"
-                            />
+                            {currentPreviewUri && (
+                                <Image
+                                    source={{ uri: currentPreviewUri }}
+                                    style={styles.editPreviewImage}
+                                    resizeMode="cover"
+                                />
+                            )}
                             {currentFilterObj.opacity > 0 && (
                                 <View
                                     style={[
@@ -482,6 +556,44 @@ export default function CreatePostScreen() {
                                 />
                             )}
                         </View>
+
+                        {/* Danh sách toàn bộ ảnh đã chọn để chuyển đổi */}
+                        {selectedImages.length > 1 && (
+                            <View style={styles.selectedImagesSelector}>
+                                <Text style={styles.sectionSmallLabel}>
+                                    Selected Photos ({selectedImages.indexOf(currentPreviewUri || '') + 1}/{selectedImages.length})
+                                </Text>
+                                <ScrollView
+                                    horizontal
+                                    showsHorizontalScrollIndicator={false}
+                                    contentContainerStyle={styles.selectedEditThumbList}
+                                >
+                                    {selectedImages.map((uri, idx) => {
+                                        const isSelectedForEdit = (currentPreviewUri === uri);
+                                        return (
+                                            <TouchableOpacity
+                                                key={`${uri}_${idx}`}
+                                                style={[
+                                                    styles.editThumbnailItem,
+                                                    isSelectedForEdit && styles.editThumbnailItemActive,
+                                                ]}
+                                                activeOpacity={0.8}
+                                                onPress={() => setActiveImageUri(uri)}
+                                            >
+                                                <Image
+                                                    source={{ uri }}
+                                                    style={styles.editThumbnailImg}
+                                                    resizeMode="cover"
+                                                />
+                                                <View style={styles.thumbIndexBadge}>
+                                                    <Text style={styles.thumbIndexText}>{idx + 1}</Text>
+                                                </View>
+                                            </TouchableOpacity>
+                                        );
+                                    })}
+                                </ScrollView>
+                            </View>
+                        )}
 
                         <View style={styles.editControlsContainer}>
                             <Text style={styles.sectionSmallLabel}>Filters</Text>
@@ -505,11 +617,13 @@ export default function CreatePostScreen() {
                                                     isFilterActive && styles.filterPreviewThumbActive,
                                                 ]}
                                             >
-                                                <Image
-                                                    source={{ uri: selectedImages[activeImageIndex] }}
-                                                    style={styles.filterThumbImage}
-                                                    resizeMode="cover"
-                                                />
+                                                {currentPreviewUri && (
+                                                    <Image
+                                                        source={{ uri: currentPreviewUri }}
+                                                        style={styles.filterThumbImage}
+                                                        resizeMode="cover"
+                                                    />
+                                                )}
                                                 {filter.opacity > 0 && (
                                                     <View
                                                         style={[
@@ -537,7 +651,6 @@ export default function CreatePostScreen() {
                         </View>
                     </ScrollView>
 
-                    {/* Nút Next nổi */}
                     <View style={[styles.bottomBarContainer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
                         <PrimaryButton
                             title="Next"
@@ -557,12 +670,59 @@ export default function CreatePostScreen() {
                         showsVerticalScrollIndicator={false}
                         contentContainerStyle={styles.detailsScrollContent}
                     >
-                        <View style={styles.captionRowCard}>
-                            <Image
-                                source={{ uri: selectedImages[activeImageIndex] }}
-                                style={styles.detailsThumbPreview}
-                                resizeMode="cover"
-                            />
+                        {/* Danh sách ảnh đã chọn */}
+                        <View style={styles.detailsPhotosContainer}>
+                            <ScrollView
+                                horizontal
+                                showsHorizontalScrollIndicator={false}
+                                contentContainerStyle={styles.detailsPhotosList}
+                            >
+                                {selectedImages.map((uri, index) => {
+                                    const isActivePreview = currentPreviewUri === uri;
+                                    return (
+                                        <View key={`${uri}_${index}`} style={styles.detailsPhotoWrapper}>
+                                            <TouchableOpacity
+                                                activeOpacity={0.85}
+                                                onPress={() => setActiveImageUri(uri)}
+                                                style={[
+                                                    styles.detailsPhotoBox,
+                                                    isActivePreview && styles.detailsPhotoBoxActive,
+                                                ]}
+                                            >
+                                                <Image
+                                                    source={{ uri }}
+                                                    style={styles.detailsThumbPreview}
+                                                    resizeMode="cover"
+                                                />
+                                                {currentFilterObj.opacity > 0 && (
+                                                    <View
+                                                        style={[
+                                                            StyleSheet.absoluteFill,
+                                                            {
+                                                                backgroundColor: currentFilterObj.overlayColor,
+                                                                opacity: currentFilterObj.opacity,
+                                                            },
+                                                        ]}
+                                                    />
+                                                )}
+                                            </TouchableOpacity>
+
+                                            <TouchableOpacity
+                                                style={styles.removePhotoBtn}
+                                                activeOpacity={0.8}
+                                                onPress={() => handleRemoveSelectedImage(uri)}
+                                                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                            >
+                                                <Octicons name="x" size={12} color="#FFFFFF" />
+                                            </TouchableOpacity>
+                                        </View>
+                                    );
+                                })}
+                            </ScrollView>
+                        </View>
+
+                        {/* Ô nhập Caption */}
+                        <View style={styles.captionCard}>
                             <TextInput
                                 style={styles.captionInput}
                                 placeholder="Add a caption..."
@@ -574,45 +734,91 @@ export default function CreatePostScreen() {
                             />
                         </View>
 
+                        {/* KHU VỰC VỊ TRÍ NÂNG CẤP LOGIC */}
                         <View style={styles.sectionGroupCard}>
                             <View style={styles.fieldHeaderRow}>
                                 <Octicons name="location" size={16} color="#0F172A" />
-                                <Text style={styles.fieldHeaderTitle}>Add location</Text>
+                                <Text style={styles.fieldHeaderTitle}>Location</Text>
                             </View>
 
-                            <ScrollView
-                                horizontal
-                                showsHorizontalScrollIndicator={false}
-                                contentContainerStyle={styles.locationPillsRow}
-                            >
-                                {SUGGESTED_LOCATIONS.map((loc) => {
-                                    const isLocSelected = selectedLocation === loc;
-                                    return (
-                                        <TouchableOpacity
-                                            key={loc}
-                                            style={[
-                                                styles.locationPill,
-                                                isLocSelected && styles.locationPillActive,
-                                            ]}
-                                            activeOpacity={0.8}
-                                            onPress={() =>
-                                                setSelectedLocation(isLocSelected ? '' : loc)
-                                            }
-                                        >
-                                            <Text
+                            {/* Ô nhập / tìm kiếm vị trí + Nút định vị GPS + Nút xóa */}
+                            <View style={styles.locationInputRow}>
+                                <Octicons name="search" size={14} color="#94A3B8" style={styles.locationSearchIcon} />
+                                <TextInput
+                                    style={styles.locationTextInput}
+                                    placeholder="Search or enter location..."
+                                    placeholderTextColor="#94A3B8"
+                                    value={selectedLocation}
+                                    onChangeText={setSelectedLocation}
+                                    returnKeyType="done"
+                                />
+
+                                {selectedLocation.length > 0 && (
+                                    <TouchableOpacity
+                                        style={styles.clearLocationBtn}
+                                        onPress={() => setSelectedLocation('')}
+                                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                                    >
+                                        <Octicons name="x" size={14} color="#64748B" />
+                                    </TouchableOpacity>
+                                )}
+
+                                <TouchableOpacity
+                                    style={styles.gpsActionBtn}
+                                    activeOpacity={0.8}
+                                    onPress={handleGetCurrentLocation}
+                                    disabled={isLocating}
+                                >
+                                    {isLocating ? (
+                                        <ActivityIndicator size="small" color="#0284C7" />
+                                    ) : (
+                                        <Ionicons name="navigate-circle-outline" size={22} color="#0284C7" />
+                                    )}
+                                </TouchableOpacity>
+                            </View>
+
+                            {/* Gợi ý điểm trekking nhanh */}
+                            <View style={styles.suggestionsContainer}>
+                                <Text style={styles.suggestionHeaderLabel}>Suggested spots</Text>
+                                <ScrollView
+                                    horizontal
+                                    showsHorizontalScrollIndicator={false}
+                                    contentContainerStyle={styles.locationPillsRow}
+                                >
+                                    {SUGGESTED_LOCATIONS.map((loc) => {
+                                        const isLocSelected = selectedLocation === loc;
+                                        return (
+                                            <TouchableOpacity
+                                                key={loc}
                                                 style={[
-                                                    styles.locationPillText,
-                                                    isLocSelected && styles.locationPillTextActive,
+                                                    styles.locationPill,
+                                                    isLocSelected && styles.locationPillActive,
                                                 ]}
+                                                activeOpacity={0.8}
+                                                onPress={() => setSelectedLocation(isLocSelected ? '' : loc)}
                                             >
-                                                {loc}
-                                            </Text>
-                                        </TouchableOpacity>
-                                    );
-                                })}
-                            </ScrollView>
+                                                <Octicons
+                                                    name="location"
+                                                    size={11}
+                                                    color={isLocSelected ? '#FFFFFF' : '#64748B'}
+                                                    style={{ marginRight: 6 }}
+                                                />
+                                                <Text
+                                                    style={[
+                                                        styles.locationPillText,
+                                                        isLocSelected && styles.locationPillTextActive,
+                                                    ]}
+                                                >
+                                                    {loc}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        );
+                                    })}
+                                </ScrollView>
+                            </View>
                         </View>
 
+                        {/* Quyền riêng tư */}
                         <View style={styles.sectionGroupCard}>
                             <View style={styles.fieldHeaderRow}>
                                 <Octicons name="eye" size={16} color="#0F172A" />
@@ -659,7 +865,6 @@ export default function CreatePostScreen() {
                         </View>
                     </ScrollView>
 
-                    {/* Nút Share nổi */}
                     <View style={[styles.bottomBarContainer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
                         <PrimaryButton
                             title="Share"
@@ -789,12 +994,14 @@ const styles = StyleSheet.create({
         fontSize: 15,
         color: '#475569',
         includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     emptyPromptSubtitle: {
         fontFamily: 'GoogleSans-Regular',
         fontSize: 13,
         color: '#94A3B8',
         includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     galleryActionBar: {
         flexDirection: 'row',
@@ -814,6 +1021,7 @@ const styles = StyleSheet.create({
         fontSize: 16,
         color: '#0F172A',
         includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     selectedCountBadge: {
         backgroundColor: '#3B82F6',
@@ -825,6 +1033,21 @@ const styles = StyleSheet.create({
         fontFamily: 'GoogleSans-Bold',
         fontSize: 11,
         color: '#FFFFFF',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
+    },
+    manageAccessBtn: {
+        backgroundColor: '#E2E8F0',
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 8,
+    },
+    manageAccessText: {
+        fontFamily: 'GoogleSans-Medium',
+        fontSize: 11,
+        color: '#0F172A',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     openPickerBtn: {
         flexDirection: 'row',
@@ -840,6 +1063,7 @@ const styles = StyleSheet.create({
         fontSize: 12,
         color: '#0F172A',
         includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     gridContainer: {
         flexDirection: 'row',
@@ -865,6 +1089,7 @@ const styles = StyleSheet.create({
         fontSize: 11,
         color: '#475569',
         includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     thumbnailList: {
         gap: THUMB_GAP,
@@ -893,9 +1118,9 @@ const styles = StyleSheet.create({
         position: 'absolute',
         top: 5,
         right: 5,
-        width: 20,
-        height: 20,
-        borderRadius: 10,
+        width: 22,
+        height: 22,
+        borderRadius: 11,
         backgroundColor: 'rgba(15, 23, 42, 0.45)',
         borderWidth: 1.5,
         borderColor: '#FFFFFF',
@@ -912,9 +1137,10 @@ const styles = StyleSheet.create({
     },
     selectBadgeNum: {
         fontFamily: 'GoogleSans-Bold',
-        fontSize: 10,
+        fontSize: 11,
         color: '#FFFFFF',
         includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     thumbLoadingBox: {
         width: THUMB_SIZE,
@@ -937,6 +1163,46 @@ const styles = StyleSheet.create({
         width: '100%',
         height: '100%',
     },
+    selectedImagesSelector: {
+        marginTop: 16,
+    },
+    selectedEditThumbList: {
+        paddingHorizontal: 20,
+        gap: 10,
+        paddingTop: 8,
+    },
+    editThumbnailItem: {
+        width: 60,
+        height: 60,
+        borderRadius: 10,
+        overflow: 'hidden',
+        borderWidth: 2,
+        borderColor: 'transparent',
+        position: 'relative',
+    },
+    editThumbnailItemActive: {
+        borderColor: '#3B82F6',
+    },
+    editThumbnailImg: {
+        width: '100%',
+        height: '100%',
+    },
+    thumbIndexBadge: {
+        position: 'absolute',
+        bottom: 2,
+        right: 2,
+        backgroundColor: 'rgba(15, 23, 42, 0.75)',
+        borderRadius: 6,
+        paddingHorizontal: 4,
+        paddingVertical: 1,
+    },
+    thumbIndexText: {
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 9,
+        color: '#FFFFFF',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
+    },
     editControlsContainer: {
         marginTop: 20,
         paddingBottom: 28,
@@ -946,7 +1212,9 @@ const styles = StyleSheet.create({
         fontSize: 13,
         color: '#64748B',
         marginHorizontal: 20,
-        marginBottom: 10,
+        marginBottom: 8,
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     filterList: {
         paddingHorizontal: 20,
@@ -975,10 +1243,14 @@ const styles = StyleSheet.create({
         fontFamily: 'GoogleSans-Regular',
         fontSize: 11,
         color: '#64748B',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     filterNameTextActive: {
         fontFamily: 'GoogleSans-Bold',
         color: '#0F172A',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
 
     // Step 3: Details
@@ -988,27 +1260,59 @@ const styles = StyleSheet.create({
         paddingBottom: 110,
         gap: 16,
     },
-    captionRowCard: {
-        flexDirection: 'row',
+    detailsPhotosContainer: {
+        marginBottom: 4,
+    },
+    detailsPhotosList: {
+        gap: 12,
+        paddingVertical: 4,
+    },
+    detailsPhotoWrapper: {
+        position: 'relative',
+    },
+    detailsPhotoBox: {
+        width: 80,
+        height: 80,
+        borderRadius: 12,
+        overflow: 'hidden',
+        borderWidth: 2,
+        borderColor: 'transparent',
+    },
+    detailsPhotoBoxActive: {
+        borderColor: '#3B82F6',
+    },
+    detailsThumbPreview: {
+        width: '100%',
+        height: '100%',
+    },
+    removePhotoBtn: {
+        position: 'absolute',
+        top: -4,
+        right: -4,
+        backgroundColor: '#0F172A',
+        width: 20,
+        height: 20,
+        borderRadius: 10,
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderWidth: 1.5,
+        borderColor: '#FFFFFF',
+        zIndex: 5,
+    },
+    captionCard: {
         backgroundColor: '#FFFFFF',
         borderRadius: 16,
-        padding: 12,
-        gap: 12,
+        padding: 14,
         borderWidth: 1,
         borderColor: '#E2E8F0',
     },
-    detailsThumbPreview: {
-        width: 72,
-        height: 72,
-        borderRadius: 10,
-    },
     captionInput: {
-        flex: 1,
         fontFamily: 'GoogleSans-Regular',
         fontSize: 14,
         color: '#0F172A',
         textAlignVertical: 'top',
         includeFontPadding: false,
+        minHeight: 80,
     },
     sectionGroupCard: {
         backgroundColor: '#FFFFFF',
@@ -1028,16 +1332,64 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: '#0F172A',
         includeFontPadding: false,
+        textAlignVertical: 'center',
+    },
+
+    // Style thanh input vị trí
+    locationInputRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#F8FAFC',
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#E2E8F0',
+        paddingHorizontal: 12,
+        height: 44,
+        gap: 8,
+    },
+    locationSearchIcon: {
+        marginRight: 2,
+    },
+    locationTextInput: {
+        flex: 1,
+        fontFamily: 'GoogleSans-Regular',
+        fontSize: 13,
+        color: '#0F172A',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
+        height: '100%',
+    },
+    clearLocationBtn: {
+        padding: 4,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    gpsActionBtn: {
+        paddingLeft: 4,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    suggestionsContainer: {
+        gap: 8,
+    },
+    suggestionHeaderLabel: {
+        fontFamily: 'GoogleSans-Medium',
+        fontSize: 12,
+        color: '#94A3B8',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     locationPillsRow: {
         gap: 8,
         paddingVertical: 2,
     },
     locationPill: {
-        paddingHorizontal: 14,
-        paddingVertical: 8,
-        borderRadius: 12,
-        backgroundColor: '#E2E8F0',
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 12,
+        paddingVertical: 7,
+        borderRadius: 10,
+        backgroundColor: '#F1F5F9',
     },
     locationPillActive: {
         backgroundColor: '#0284C7',
@@ -1047,11 +1399,15 @@ const styles = StyleSheet.create({
         fontSize: 12,
         color: '#334155',
         includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     locationPillTextActive: {
         fontFamily: 'GoogleSans-Bold',
         color: '#FFFFFF',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
+
     audienceOptionRow: {
         flexDirection: 'row',
         gap: 10,
@@ -1072,10 +1428,13 @@ const styles = StyleSheet.create({
         fontSize: 13,
         color: '#64748B',
         includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     audienceBtnTextActive: {
         fontFamily: 'GoogleSans-Bold',
         color: '#FFFFFF',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     bottomBarContainer: {
         position: 'absolute',
