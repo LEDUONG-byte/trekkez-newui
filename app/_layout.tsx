@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { Stack } from 'expo-router';
+import { useEffect, useRef } from 'react';
+import { Stack, usePathname, useRootNavigationState, useRouter } from 'expo-router';
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 
@@ -7,6 +7,10 @@ import * as SplashScreen from 'expo-splash-screen';
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
+    const router = useRouter();
+    const pathname = usePathname();
+    const navigationState = useRootNavigationState();
+    const startupRedirectHandled = useRef(false);
     const [loaded, error] = useFonts({
         'GoogleSans-Regular': require('../assets/fonts/GoogleSans-Regular.ttf'),
         'GoogleSans-Medium': require('../assets/fonts/GoogleSans-Medium.ttf'),
@@ -19,6 +23,14 @@ export default function RootLayout() {
             SplashScreen.hideAsync();
         }
     }, [loaded, error]);
+
+    useEffect(() => {
+        if (!loaded || !navigationState?.key || startupRedirectHandled.current) return;
+        startupRedirectHandled.current = true;
+        if (pathname === '/') {
+            router.replace('/onboarding');
+        }
+    }, [loaded, navigationState?.key, pathname, router]);
 
     if (!loaded && !error) {
         return null;

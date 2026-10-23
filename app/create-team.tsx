@@ -101,7 +101,7 @@ export default function CreateTeamScreen() {
             ) {
                 throw new Error('Đã gửi yêu cầu tạo Team nhưng chưa xác minh được dữ liệu trên Supabase.');
             }
-            router.replace({ pathname: '/manage-team', params: { id } });
+            router.replace('/(tabs)/team');
         } catch (error) {
             setErrorModal({
                 visible: true,

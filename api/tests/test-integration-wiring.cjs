@@ -10,6 +10,9 @@ assert.doesNotMatch(login, /const handleGoogleLogin = \(\) => \{\s*router\.repla
 const tabs=read('app/(tabs)/_layout.tsx');
 assert.match(tabs, /getAuthSession\(/);
 assert.match(tabs, /if \(!authReady \|\| !authorized\) return null/);
+const rootLayout=read('app/_layout.tsx');
+assert.match(rootLayout, /useRootNavigationState/);
+assert.match(rootLayout, /if \(pathname === '\/'\)\s*\{\s*router\.replace\('\/onboarding'\)/);
 for(const [f,pattern] of [
   ['app/(tabs)/team.tsx',/loadTeamCards\(/],
   ['app/(tabs)/plan.tsx',/loadPlanCards\(/],
@@ -21,6 +24,9 @@ for(const [f,pattern] of [
 const createPost=read('app/create-post.tsx');
 assert.match(createPost,/getRemoteCommunityPosts\(profile\.id\)/);
 assert.match(createPost,/Followers-only posts are not supported/);
+const createTeam=read('app/create-team.tsx');
+assert.match(createTeam,/router\.replace\('\/\(tabs\)\/team'\)/);
+assert.doesNotMatch(createTeam,/router\.replace\(\{\s*pathname:\s*'\/manage-team'/);
 assert.match(read('app/(tabs)/index.tsx'), /useState<FeedItem\[]>\(\[\]\)/);
 assert.match(read('app/(tabs)/plan.tsx'), /useState<PlanItem\[]>\(\[\]\)/);
 console.log('PASS: Integration wiring structural smoke tests (no remote network)');
