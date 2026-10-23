@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "trekkez2",
+    "name": "TrekkEZ",
     "slug": "trekkez2",
     "scheme": "trekkez2",
     "version": "1.0.0",
@@ -12,8 +12,8 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#4cc2fe"
+        "foregroundImage": "./assets/trekkEZ.png",
+        "backgroundColor": "#79d3ff"
       },
       "package": "com.leduong232steam.trekkez2",
       "permissions": [
