@@ -212,7 +212,7 @@ export default function HomeScreen() {
         <View style={styles.emptyContainer}>
             <View style={styles.sadIconCircle}>
                 <Octicons
-                    name={searchQuery.trim() ? 'search' : 'feed'}
+                    name={searchQuery.trim() ? 'search' : 'rss'}
                     size={40}
                     color="#94A3B8"
                 />

@@ -18,7 +18,9 @@
       "package": "com.leduong232steam.trekkez2",
       "permissions": [
         "ACCESS_COARSE_LOCATION",
-        "ACCESS_FINE_LOCATION"
+        "ACCESS_FINE_LOCATION",
+        "CAMERA",
+        "RECORD_AUDIO"
       ]
     },
     "web": {
@@ -32,9 +34,23 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Cho phép Trekkez truy cập vị trí của bạn để hiển thị bản đồ và dẫn đường."
+          "locationAlwaysAndWhenInUsePermission": "Allow Trekkez to access your location for map display and navigation."
         }
-      ]
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Trekkez to access your camera to take photos.",
+          "microphonePermission": "Allow Trekkez to access your microphone to record videos."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Trekkez to access your photo library to select photos."
+        }
+      ],
+      "expo-image"
     ],
     "extra": {
       "router": {},
