@@ -142,9 +142,10 @@ export default function CreatePostScreen() {
                 accessPrivileges = req.accessPrivileges;
             }
 
-            setIsLimitedAccess(accessPrivileges === 'limited');
+            const isLimited = accessPrivileges === 'limited';
+            setIsLimitedAccess(isLimited);
 
-            if (finalStatus !== 'granted' && accessPrivileges !== 'limited') {
+            if (finalStatus !== 'granted' && !isLimited) {
                 if (!permission.canAskAgain) {
                     showAlert('Permission Required', 'Please enable photo permissions in settings to view device photos.');
                 }
@@ -152,10 +153,9 @@ export default function CreatePostScreen() {
             }
 
             const assets = await MediaLibrary.getAssetsAsync({
-                first: 40,
+                first: 50,
                 after: reset ? undefined : afterCursor,
                 mediaType: [MediaLibrary.MediaType.photo],
-                sortBy: [MediaLibrary.SortBy.creationTime],
             });
 
             if (reset) {
@@ -182,7 +182,6 @@ export default function CreatePostScreen() {
         loadDevicePhotos(true);
     }, []);
 
-    // Lấy vị trí GPS hiện tại
     const handleGetCurrentLocation = async () => {
         try {
             setIsLocating(true);
@@ -557,7 +556,6 @@ export default function CreatePostScreen() {
                             )}
                         </View>
 
-                        {/* Danh sách toàn bộ ảnh đã chọn để chuyển đổi */}
                         {selectedImages.length > 1 && (
                             <View style={styles.selectedImagesSelector}>
                                 <Text style={styles.sectionSmallLabel}>
@@ -670,7 +668,6 @@ export default function CreatePostScreen() {
                         showsVerticalScrollIndicator={false}
                         contentContainerStyle={styles.detailsScrollContent}
                     >
-                        {/* Danh sách ảnh đã chọn */}
                         <View style={styles.detailsPhotosContainer}>
                             <ScrollView
                                 horizontal
@@ -721,7 +718,6 @@ export default function CreatePostScreen() {
                             </ScrollView>
                         </View>
 
-                        {/* Ô nhập Caption */}
                         <View style={styles.captionCard}>
                             <TextInput
                                 style={styles.captionInput}
@@ -734,14 +730,12 @@ export default function CreatePostScreen() {
                             />
                         </View>
 
-                        {/* KHU VỰC VỊ TRÍ NÂNG CẤP LOGIC */}
                         <View style={styles.sectionGroupCard}>
                             <View style={styles.fieldHeaderRow}>
                                 <Octicons name="location" size={16} color="#0F172A" />
                                 <Text style={styles.fieldHeaderTitle}>Location</Text>
                             </View>
 
-                            {/* Ô nhập / tìm kiếm vị trí + Nút định vị GPS + Nút xóa */}
                             <View style={styles.locationInputRow}>
                                 <Octicons name="search" size={14} color="#94A3B8" style={styles.locationSearchIcon} />
                                 <TextInput
@@ -777,7 +771,6 @@ export default function CreatePostScreen() {
                                 </TouchableOpacity>
                             </View>
 
-                            {/* Gợi ý điểm trekking nhanh */}
                             <View style={styles.suggestionsContainer}>
                                 <Text style={styles.suggestionHeaderLabel}>Suggested spots</Text>
                                 <ScrollView
@@ -818,7 +811,6 @@ export default function CreatePostScreen() {
                             </View>
                         </View>
 
-                        {/* Quyền riêng tư */}
                         <View style={styles.sectionGroupCard}>
                             <View style={styles.fieldHeaderRow}>
                                 <Octicons name="eye" size={16} color="#0F172A" />
@@ -1335,7 +1327,6 @@ const styles = StyleSheet.create({
         textAlignVertical: 'center',
     },
 
-    // Style thanh input vị trí
     locationInputRow: {
         flexDirection: 'row',
         alignItems: 'center',
