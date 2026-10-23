@@ -15,8 +15,12 @@ for(const [f,pattern] of [
   ['app/(tabs)/plan.tsx',/loadPlanCards\(/],
   ['app/(tabs)/index.tsx',/loadExploreFeed\(/],
   ['app/(tabs)/profile.tsx',/loadProfileOverview\(/],
+  ['app/create-post.tsx',/uploadCommunityPost\(/],
   ['app/makeaplan.tsx',/await createRemotePlan\(/],
 ]) assert.match(read(f),pattern);
+const createPost=read('app/create-post.tsx');
+assert.match(createPost,/getRemoteCommunityPosts\(profile\.id\)/);
+assert.match(createPost,/Followers-only posts are not supported/);
 assert.match(read('app/(tabs)/index.tsx'), /useState<FeedItem\[]>\(\[\]\)/);
 assert.match(read('app/(tabs)/plan.tsx'), /useState<PlanItem\[]>\(\[\]\)/);
 console.log('PASS: Integration wiring structural smoke tests (no remote network)');

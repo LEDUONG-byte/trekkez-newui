@@ -24,10 +24,28 @@ import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
 
 import PrimaryButton from '../components/PrimaryButton';
 import CustomAlert from '../components/CustomAlert';
+import { loadProfileOverview } from '../api/integration/newui-gateway';
+import { getRemoteCommunityPosts, uploadCommunityPost } from '../api/services/community/community-supabase';
+import type { CommunityPost } from '../api/types/community';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const THUMB_SIZE = 76;
 const THUMB_GAP = 12;
+
+function createPostId(): string {
+    const bytes = new Uint8Array(16);
+    if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+        crypto.getRandomValues(bytes);
+    } else {
+        for (let index = 0; index < bytes.length; index += 1) {
+            bytes[index] = Math.floor(Math.random() * 256);
+        }
+    }
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
 
 type Step = 'SELECT' | 'EDIT' | 'DETAILS';
 
@@ -122,6 +140,8 @@ export default function CreatePostScreen() {
     // Details State
     const [caption, setCaption] = useState<string>('');
     const [isPublic, setIsPublic] = useState<boolean>(true);
+    const [isSubmittingPost, setIsSubmittingPost] = useState<boolean>(false);
+    const submittingPostRef = useRef<boolean>(false);
 
     // Load ảnh từ thiết bị
     const loadDevicePhotos = useCallback(async (reset = false) => {
@@ -331,6 +351,7 @@ export default function CreatePostScreen() {
     };
 
     const handleBack = () => {
+        if (submittingPostRef.current) return;
         if (currentStep === 'DETAILS') {
             setCurrentStep('EDIT');
         } else if (currentStep === 'EDIT') {
@@ -340,14 +361,56 @@ export default function CreatePostScreen() {
         }
     };
 
-    const handleSharePost = () => {
+    const handleSharePost = async () => {
+        if (submittingPostRef.current) return;
         if (selectedImages.length === 0) {
             showAlert('Notice', 'Please select at least one photo before sharing.');
             return;
         }
-        showAlert('Published', 'Your post has been successfully shared!', 'OK', () => {
-            router.back();
-        });
+        if (!isPublic) {
+            showAlert(
+                'Audience unavailable',
+                'Followers-only posts are not supported by the current database yet. Choose Everyone to publish this post.',
+            );
+            return;
+        }
+
+        submittingPostRef.current = true;
+        setIsSubmittingPost(true);
+        try {
+            const profile = await loadProfileOverview();
+            const content = caption.trim();
+            const post: CommunityPost = {
+                id: createPostId(),
+                author: profile.fullName || profile.username,
+                time: new Date().toISOString(),
+                location: selectedLocation.trim(),
+                title: content || selectedLocation.trim() || 'Ảnh mới',
+                content,
+                image: activeImageUri || selectedImages[0],
+                likes: 0,
+                comments: 0,
+                tag: 'Ảnh đẹp',
+            };
+
+            const uploadedPost = await uploadCommunityPost(post, undefined, profile.id);
+            const savedPosts = await getRemoteCommunityPosts(profile.id);
+            if (!savedPosts.some((savedPost) => savedPost.id === uploadedPost.postId)) {
+                throw new Error('Supabase chưa xác nhận bài viết đã được lưu và hiển thị.');
+            }
+
+            showAlert('Published', 'Your post has been successfully shared!', 'OK', () => {
+                router.back();
+            });
+        } catch (error) {
+            showAlert(
+                'Unable to publish',
+                error instanceof Error ? error.message : String(error),
+            );
+        } finally {
+            submittingPostRef.current = false;
+            setIsSubmittingPost(false);
+        }
     };
 
     const getHeaderTitle = () => {
@@ -374,6 +437,7 @@ export default function CreatePostScreen() {
                     <TouchableOpacity
                         style={styles.backBtn}
                         onPress={handleBack}
+                        disabled={isSubmittingPost}
                         activeOpacity={0.7}
                         hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                     >
@@ -859,8 +923,9 @@ export default function CreatePostScreen() {
 
                     <View style={[styles.bottomBarContainer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
                         <PrimaryButton
-                            title="Share"
-                            onPress={handleSharePost}
+                            title={isSubmittingPost ? 'Sharing...' : 'Share'}
+                            onPress={() => { void handleSharePost(); }}
+                            disabled={isSubmittingPost}
                         />
                     </View>
                 </KeyboardAvoidingView>
