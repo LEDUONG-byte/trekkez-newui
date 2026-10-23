@@ -20,7 +20,10 @@
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
         "CAMERA",
-        "RECORD_AUDIO"
+        "RECORD_AUDIO",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "READ_MEDIA_IMAGES"
       ]
     },
     "web": {
@@ -48,6 +51,14 @@
         "expo-image-picker",
         {
           "photosPermission": "Allow Trekkez to access your photo library to select photos."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow Trekkez to access your photo library to load and select photos.",
+          "savePhotosPermission": "Allow Trekkez to save photos to your photo library.",
+          "isAccessMediaLocationEnabled": true
         }
       ],
       "expo-image"

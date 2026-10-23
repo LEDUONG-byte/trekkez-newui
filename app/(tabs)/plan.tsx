@@ -31,7 +31,7 @@ export interface PlanItem {
 }
 
 // =====================================================================
-// MOCK DATA (Tất cả đều thuộc về người dùng)
+// MOCK DATA
 // =====================================================================
 const INITIAL_PLANS: PlanItem[] = [
     {
@@ -282,8 +282,9 @@ export default function PlanScreen() {
                                 key={item.id}
                                 id={item.id}
                                 title={item.title}
+                                iconName={subTab === 'PLAN' ? 'bookmark' : 'git-branch'}
                                 isOwnedByYou={true}
-                                headerColor="#FFFFFF"
+                                headerColor={subTab === 'PLAN' ? '#bee8ff' : '#f6eab2'}
                                 defaultExpanded={false}
                                 onTitlePress={() => handleItemPress(item)}
                             >
@@ -304,9 +305,8 @@ export default function PlanScreen() {
                                         onPress={() => handleItemPress(item)}
                                     >
                                         <Text style={styles.manageBtnText}>
-                                            {subTab === 'PLAN' ? 'Manage Plan' : 'Manage Route'}
+                                            {subTab === 'PLAN' ? 'Manage plan' : 'Manage route'}
                                         </Text>
-                                        <Octicons name="arrow-right" size={14} color="#FFFFFF" />
                                     </TouchableOpacity>
                                 </View>
                             </ExpandableCard>

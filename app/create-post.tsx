@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
     StyleSheet,
     View,
@@ -8,21 +8,25 @@ import {
     TextInput,
     FlatList,
     Dimensions,
-    Alert,
     KeyboardAvoidingView,
     Platform,
     Modal,
     Image,
+    ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Octicons, Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
+import * as MediaLibrary from 'expo-media-library';
 import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
 
 import PrimaryButton from '../components/PrimaryButton';
+import CustomAlert from '../components/CustomAlert';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const THUMB_SIZE = 76;
+const THUMB_GAP = 12;
 
 type Step = 'SELECT' | 'EDIT' | 'DETAILS';
 
@@ -31,6 +35,24 @@ interface FilterOption {
     name: string;
     overlayColor: string;
     opacity: number;
+}
+
+interface AlertState {
+    visible: boolean;
+    title: string;
+    content: string;
+    buttonText: string;
+    onClose: () => void;
+}
+
+// Định nghĩa riêng interface ảnh để tránh xung đột type giữa Expo Modules và Legacy MediaLibrary
+export interface DevicePhoto {
+    id: string;
+    uri: string;
+    filename?: string;
+    width?: number;
+    height?: number;
+    creationTime?: number;
 }
 
 const FILTER_PRESETS: FilterOption[] = [
@@ -56,6 +78,39 @@ export default function CreatePostScreen() {
     const [selectedImages, setSelectedImages] = useState<string[]>([]);
     const [activeImageIndex, setActiveImageIndex] = useState<number>(0);
 
+    // Media Library States
+    const [libraryPhotos, setLibraryPhotos] = useState<DevicePhoto[]>([]);
+    const [hasNextPage, setHasNextPage] = useState<boolean>(true);
+    const [afterCursor, setAfterCursor] = useState<string | undefined>(undefined);
+    const [isLoadingPhotos, setIsLoadingPhotos] = useState<boolean>(false);
+
+    // Custom Alert State
+    const [alertConfig, setAlertConfig] = useState<AlertState>({
+        visible: false,
+        title: '',
+        content: '',
+        buttonText: 'OK',
+        onClose: () => {},
+    });
+
+    const showAlert = (
+        title: string,
+        content: string,
+        buttonText = 'OK',
+        onClose?: () => void
+    ) => {
+        setAlertConfig({
+            visible: true,
+            title,
+            content,
+            buttonText,
+            onClose: () => {
+                setAlertConfig((prev) => ({ ...prev, visible: false }));
+                if (onClose) onClose();
+            },
+        });
+    };
+
     // Camera State
     const [cameraPermission, requestCameraPermission] = useCameraPermissions();
     const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
@@ -70,11 +125,65 @@ export default function CreatePostScreen() {
     const [selectedLocation, setSelectedLocation] = useState<string>('');
     const [isPublic, setIsPublic] = useState<boolean>(true);
 
+    // Load ảnh từ thư viện thiết bị
+    const loadDevicePhotos = useCallback(async (reset = false) => {
+        if (isLoadingPhotos || (!hasNextPage && !reset)) return;
+
+        try {
+            setIsLoadingPhotos(true);
+            const { status, canAskAgain } = await MediaLibrary.getPermissionsAsync();
+            let finalStatus = status;
+
+            if (status !== 'granted') {
+                const req = await MediaLibrary.requestPermissionsAsync();
+                finalStatus = req.status;
+            }
+
+            if (finalStatus !== 'granted') {
+                if (!canAskAgain) {
+                    showAlert('Permission Required', 'Please enable media library access in settings to view device photos.');
+                }
+                setIsLoadingPhotos(false);
+                return;
+            }
+
+            const assets = await MediaLibrary.getAssetsAsync({
+                first: 40,
+                after: reset ? undefined : afterCursor,
+                mediaType: ['photo'], // Dùng string literal trực tiếp thay vì MediaLibrary.MediaType.photo
+                sortBy: ['creationTime'], // Dùng string literal trực tiếp thay vì MediaLibrary.SortBy.creationTime
+            });
+
+            const fetchedAssets = assets.assets as unknown as DevicePhoto[];
+
+            if (reset) {
+                setLibraryPhotos(fetchedAssets);
+                if (fetchedAssets.length > 0 && selectedImages.length === 0) {
+                    setSelectedImages([fetchedAssets[0].uri]);
+                    setActiveImageIndex(0);
+                }
+            } else {
+                setLibraryPhotos((prev) => [...prev, ...fetchedAssets]);
+            }
+
+            setHasNextPage(assets.hasNextPage);
+            setAfterCursor(assets.endCursor);
+        } catch {
+            showAlert('Notice', 'Cannot load device photos directly. You can use Open Gallery.');
+        } finally {
+            setIsLoadingPhotos(false);
+        }
+    }, [isLoadingPhotos, hasNextPage, afterCursor, selectedImages.length]);
+
+    useEffect(() => {
+        loadDevicePhotos(true);
+    }, []);
+
     const handlePickFromLibrary = async () => {
         try {
             const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
             if (status !== 'granted') {
-                Alert.alert('Permission Denied', 'Media library access is needed to select photos.');
+                showAlert('Permission Denied', 'Media library access is needed to select photos.');
                 return;
             }
 
@@ -87,14 +196,36 @@ export default function CreatePostScreen() {
 
             if (!result.canceled && result.assets && result.assets.length > 0) {
                 const uris = result.assets.map((asset) => asset.uri);
-                setSelectedImages((prev) => {
-                    const combined = [...prev, ...uris];
-                    return Array.from(new Set(combined));
-                });
+                setSelectedImages((prev) => Array.from(new Set([...uris, ...prev])));
                 setActiveImageIndex(0);
             }
         } catch {
-            Alert.alert('Error', 'Image picker native module is not linked. Please rebuild your app.');
+            showAlert('Error', 'Image picker native module is not linked. Please rebuild your app.');
+        }
+    };
+
+    const handleToggleSelectPhoto = (uri: string) => {
+        if (selectedImages.includes(uri)) {
+            const index = selectedImages.indexOf(uri);
+            if (selectedImages.length === 1) {
+                setSelectedImages([]);
+                setActiveImageIndex(0);
+                return;
+            }
+            const updated = selectedImages.filter((u) => u !== uri);
+            setSelectedImages(updated);
+            if (activeImageIndex >= updated.length) {
+                setActiveImageIndex(Math.max(0, updated.length - 1));
+            } else if (activeImageIndex === index) {
+                setActiveImageIndex(0);
+            }
+        } else {
+            if (selectedImages.length >= 10) {
+                showAlert('Limit Reached', 'You can select up to 10 photos per post.');
+                return;
+            }
+            setSelectedImages((prev) => [...prev, uri]);
+            setActiveImageIndex(selectedImages.length);
         }
     };
 
@@ -102,7 +233,7 @@ export default function CreatePostScreen() {
         if (!cameraPermission?.granted) {
             const res = await requestCameraPermission();
             if (!res.granted) {
-                Alert.alert('Permission Denied', 'Camera permission is required to capture photos.');
+                showAlert('Permission Denied', 'Camera permission is required to capture photos.');
                 return;
             }
         }
@@ -119,14 +250,14 @@ export default function CreatePostScreen() {
                     setIsCameraActive(false);
                 }
             } catch {
-                Alert.alert('Error', 'Failed to take photo. Please try again.');
+                showAlert('Error', 'Failed to take photo. Please try again.');
             }
         }
     };
 
     const handleNext = () => {
         if (selectedImages.length === 0) {
-            Alert.alert('Notice', 'Please select or capture at least one photo first.');
+            showAlert('Notice', 'Please select or capture at least one photo first.');
             return;
         }
 
@@ -148,143 +279,184 @@ export default function CreatePostScreen() {
     };
 
     const handleSharePost = () => {
-        Alert.alert('Published', 'Your post has been successfully shared!', [
-            { text: 'OK', onPress: () => router.back() },
-        ]);
+        showAlert('Published', 'Your post has been successfully shared!', 'OK', () => {
+            router.back();
+        });
+    };
+
+    const getHeaderTitle = () => {
+        switch (currentStep) {
+            case 'SELECT':
+                return 'NEW POST';
+            case 'EDIT':
+                return 'EDIT PHOTO';
+            case 'DETAILS':
+                return 'POST DETAILS';
+            default:
+                return 'NEW POST';
+        }
     };
 
     const currentFilterObj = FILTER_PRESETS.find((f) => f.id === selectedFilter) || FILTER_PRESETS[0];
 
+    const currentPreviewUri = selectedImages.length > 0 && selectedImages[activeImageIndex]
+        ? selectedImages[activeImageIndex]
+        : libraryPhotos[0]?.uri;
+
     return (
         <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-            {/* Top Bar */}
-            <View style={styles.topHeader}>
-                <TouchableOpacity
-                    style={styles.headerBtn}
-                    onPress={handleBack}
-                    activeOpacity={0.7}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                >
-                    <Octicons
-                        name={currentStep === 'SELECT' ? 'x' : 'chevron-left'}
-                        size={22}
-                        color="#0F172A"
-                    />
-                </TouchableOpacity>
-
-                <Text style={styles.headerTitle}>
-                    {currentStep === 'SELECT' && 'New post'}
-                    {currentStep === 'EDIT' && 'Edit photo'}
-                    {currentStep === 'DETAILS' && 'New post'}
-                </Text>
-
-                {currentStep !== 'DETAILS' ? (
+            {/* Header đồng bộ chuẩn dự án */}
+            <View style={styles.headerContainer}>
+                <View style={styles.headerBar}>
                     <TouchableOpacity
-                        style={styles.nextTextBtn}
-                        onPress={handleNext}
-                        activeOpacity={0.8}
+                        style={styles.backBtn}
+                        onPress={handleBack}
+                        activeOpacity={0.7}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                     >
-                        <Text style={styles.nextBtnText}>Next</Text>
+                        <Octicons name="chevron-left" size={24} color="#0F172A" />
                     </TouchableOpacity>
-                ) : (
-                    <View style={styles.headerPlaceholder} />
-                )}
+
+                    <Text style={styles.headerTitle}>{getHeaderTitle()}</Text>
+
+                    <View style={styles.placeholderRight} />
+                </View>
             </View>
 
             {/* Step 1: Select Media */}
             {currentStep === 'SELECT' && (
                 <View style={styles.stepContainer}>
-                    {/* Main Image Preview */}
-                    <View style={styles.mainPreviewContainer}>
-                        {selectedImages.length > 0 && selectedImages[activeImageIndex] ? (
-                            <Image
-                                source={{ uri: selectedImages[activeImageIndex] }}
-                                style={styles.mainPreviewImage}
-                                resizeMode="cover"
-                            />
-                        ) : (
+                    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.stepScrollContent}>
+                        {/* Main Image Preview */}
+                        <View style={styles.mainPreviewContainer}>
+                            {currentPreviewUri ? (
+                                <Image
+                                    source={{ uri: currentPreviewUri }}
+                                    style={styles.mainPreviewImage}
+                                    resizeMode="cover"
+                                />
+                            ) : (
+                                <TouchableOpacity
+                                    style={styles.emptyPreviewBox}
+                                    activeOpacity={0.8}
+                                    onPress={handlePickFromLibrary}
+                                >
+                                    <Ionicons name="images-outline" size={48} color="#94A3B8" />
+                                    <Text style={styles.emptyPromptTitle}>No photo selected</Text>
+                                    <Text style={styles.emptyPromptSubtitle}>Tap to choose photos from device</Text>
+                                </TouchableOpacity>
+                            )}
+                        </View>
+
+                        {/* Bar thông tin & nút mở Thư viện */}
+                        <View style={styles.galleryActionBar}>
+                            <View style={styles.galleryRecentsHeader}>
+                                <Text style={styles.galleryTitle}>Recents</Text>
+                                {selectedImages.length > 0 && (
+                                    <View style={styles.selectedCountBadge}>
+                                        <Text style={styles.selectedCountText}>{selectedImages.length}/10</Text>
+                                    </View>
+                                )}
+                            </View>
                             <TouchableOpacity
-                                style={styles.emptyPreviewBox}
+                                style={styles.openPickerBtn}
                                 activeOpacity={0.8}
                                 onPress={handlePickFromLibrary}
                             >
-                                <Ionicons name="images-outline" size={48} color="#94A3B8" />
-                                <Text style={styles.emptyPromptTitle}>No photo selected</Text>
-                                <Text style={styles.emptyPromptSubtitle}>Tap to choose photos from device</Text>
+                                <Octicons name="stack" size={15} color="#0F172A" />
+                                <Text style={styles.openPickerText}>Open Gallery</Text>
                             </TouchableOpacity>
-                        )}
-                    </View>
-
-                    {/* Bar thông tin & nút mở Thư viện */}
-                    <View style={styles.galleryActionBar}>
-                        <View style={styles.galleryRecentsHeader}>
-                            <Text style={styles.galleryTitle}>Device photos</Text>
                         </View>
-                        <TouchableOpacity
-                            style={styles.openPickerBtn}
-                            activeOpacity={0.8}
-                            onPress={handlePickFromLibrary}
-                        >
-                            <Octicons name="stack" size={15} color="#0F172A" />
-                            <Text style={styles.openPickerText}>Open Gallery</Text>
-                        </TouchableOpacity>
-                    </View>
 
-                    {/* Hàng chọn ảnh: Nút Chụp ảnh + Nút thêm từ Gallery + Danh sách ảnh đã chọn */}
-                    <View style={styles.gridContainer}>
-                        <TouchableOpacity
-                            style={styles.cameraTileBtn}
-                            activeOpacity={0.8}
-                            onPress={handleOpenCamera}
-                        >
-                            <Ionicons name="camera-outline" size={26} color="#0F172A" />
-                            <Text style={styles.cameraTileText}>Camera</Text>
-                        </TouchableOpacity>
+                        {/* Hàng chọn ảnh: Camera + Danh sách ảnh từ máy */}
+                        <View style={styles.gridContainer}>
+                            <TouchableOpacity
+                                style={styles.cameraTileBtn}
+                                activeOpacity={0.8}
+                                onPress={handleOpenCamera}
+                            >
+                                <Ionicons name="camera-outline" size={26} color="#0F172A" />
+                                <Text style={styles.cameraTileText}>Camera</Text>
+                            </TouchableOpacity>
 
-                        <TouchableOpacity
-                            style={styles.galleryAddTileBtn}
-                            activeOpacity={0.8}
-                            onPress={handlePickFromLibrary}
-                        >
-                            <Ionicons name="image-outline" size={24} color="#3B82F6" />
-                            <Text style={styles.galleryAddTileText}>Add Photo</Text>
-                        </TouchableOpacity>
+                            <FlatList
+                                data={libraryPhotos}
+                                horizontal
+                                showsHorizontalScrollIndicator={false}
+                                contentContainerStyle={styles.thumbnailList}
+                                keyExtractor={(item) => item.id}
+                                initialNumToRender={8}
+                                maxToRenderPerBatch={10}
+                                windowSize={5}
+                                removeClippedSubviews={Platform.OS === 'android'}
+                                getItemLayout={(_, index) => ({
+                                    length: THUMB_SIZE + THUMB_GAP,
+                                    offset: (THUMB_SIZE + THUMB_GAP) * index,
+                                    index,
+                                })}
+                                onEndReached={() => loadDevicePhotos()}
+                                onEndReachedThreshold={0.5}
+                                ListFooterComponent={
+                                    isLoadingPhotos ? (
+                                        <View style={styles.thumbLoadingBox}>
+                                            <ActivityIndicator size="small" color="#3B82F6" />
+                                        </View>
+                                    ) : null
+                                }
+                                renderItem={({ item }) => {
+                                    const isSelected = selectedImages.includes(item.uri);
+                                    const selectOrder = selectedImages.indexOf(item.uri) + 1;
+                                    const isCurrentActive =
+                                        selectedImages[activeImageIndex] === item.uri;
 
-                        <FlatList
-                            data={selectedImages}
-                            horizontal
-                            showsHorizontalScrollIndicator={false}
-                            contentContainerStyle={styles.thumbnailList}
-                            keyExtractor={(item, index) => `${item}_${index}`}
-                            renderItem={({ item, index }) => {
-                                const isSelected = activeImageIndex === index;
-                                return (
-                                    <TouchableOpacity
-                                        style={[
-                                            styles.thumbnailWrapper,
-                                            isSelected && styles.thumbnailSelected,
-                                        ]}
-                                        activeOpacity={0.8}
-                                        onPress={() => setActiveImageIndex(index)}
-                                    >
-                                        <Image
-                                            source={{ uri: item }}
-                                            style={styles.thumbnailImage}
-                                            resizeMode="cover"
-                                        />
+                                    return (
                                         <TouchableOpacity
-                                            style={styles.removeImageBadge}
+                                            style={[
+                                                styles.thumbnailWrapper,
+                                                isSelected && styles.thumbnailSelected,
+                                                isCurrentActive && styles.thumbnailActivePreview,
+                                            ]}
+                                            activeOpacity={0.8}
                                             onPress={() => {
-                                                const updated = selectedImages.filter((_, i) => i !== index);
-                                                setSelectedImages(updated);
-                                                setActiveImageIndex(0);
+                                                if (isSelected) {
+                                                    setActiveImageIndex(selectedImages.indexOf(item.uri));
+                                                } else {
+                                                    handleToggleSelectPhoto(item.uri);
+                                                }
                                             }}
                                         >
-                                            <Octicons name="x" size={10} color="#FFFFFF" />
+                                            <Image
+                                                source={{ uri: item.uri }}
+                                                style={styles.thumbnailImage}
+                                                resizeMode="cover"
+                                            />
+
+                                            <TouchableOpacity
+                                                style={[
+                                                    styles.selectBadge,
+                                                    isSelected && styles.selectBadgeActive,
+                                                ]}
+                                                onPress={() => handleToggleSelectPhoto(item.uri)}
+                                                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                            >
+                                                {isSelected ? (
+                                                    <Text style={styles.selectBadgeNum}>{selectOrder}</Text>
+                                                ) : (
+                                                    <View style={styles.selectBadgeEmpty} />
+                                                )}
+                                            </TouchableOpacity>
                                         </TouchableOpacity>
-                                    </TouchableOpacity>
-                                );
-                            }}
+                                    );
+                                }}
+                            />
+                        </View>
+                    </ScrollView>
+
+                    {/* Nút nổi phía dưới */}
+                    <View style={[styles.bottomBarContainer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+                        <PrimaryButton
+                            title="Next"
+                            onPress={handleNext}
                         />
                     </View>
                 </View>
@@ -293,76 +465,86 @@ export default function CreatePostScreen() {
             {/* Step 2: Edit & Filters */}
             {currentStep === 'EDIT' && (
                 <View style={styles.stepContainer}>
-                    <View style={styles.editPreviewWrapper}>
-                        <Image
-                            source={{ uri: selectedImages[activeImageIndex] }}
-                            style={styles.editPreviewImage}
-                            resizeMode="cover"
-                        />
-                        {currentFilterObj.opacity > 0 && (
-                            <View
-                                style={[
-                                    StyleSheet.absoluteFill,
-                                    {
-                                        backgroundColor: currentFilterObj.overlayColor,
-                                        opacity: currentFilterObj.opacity,
-                                    },
-                                ]}
+                    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.stepScrollContent}>
+                        <View style={styles.editPreviewWrapper}>
+                            <Image
+                                source={{ uri: selectedImages[activeImageIndex] }}
+                                style={styles.editPreviewImage}
+                                resizeMode="cover"
                             />
-                        )}
-                    </View>
+                            {currentFilterObj.opacity > 0 && (
+                                <View
+                                    style={[
+                                        StyleSheet.absoluteFill,
+                                        {
+                                            backgroundColor: currentFilterObj.overlayColor,
+                                            opacity: currentFilterObj.opacity,
+                                        },
+                                    ]}
+                                />
+                            )}
+                        </View>
 
-                    <View style={styles.editControlsContainer}>
-                        <Text style={styles.sectionSmallLabel}>Filters</Text>
-                        <ScrollView
-                            horizontal
-                            showsHorizontalScrollIndicator={false}
-                            contentContainerStyle={styles.filterList}
-                        >
-                            {FILTER_PRESETS.map((filter) => {
-                                const isFilterActive = selectedFilter === filter.id;
-                                return (
-                                    <TouchableOpacity
-                                        key={filter.id}
-                                        style={styles.filterOptionItem}
-                                        activeOpacity={0.8}
-                                        onPress={() => setSelectedFilter(filter.id)}
-                                    >
-                                        <View
-                                            style={[
-                                                styles.filterPreviewThumb,
-                                                isFilterActive && styles.filterPreviewThumbActive,
-                                            ]}
+                        <View style={styles.editControlsContainer}>
+                            <Text style={styles.sectionSmallLabel}>Filters</Text>
+                            <ScrollView
+                                horizontal
+                                showsHorizontalScrollIndicator={false}
+                                contentContainerStyle={styles.filterList}
+                            >
+                                {FILTER_PRESETS.map((filter) => {
+                                    const isFilterActive = selectedFilter === filter.id;
+                                    return (
+                                        <TouchableOpacity
+                                            key={filter.id}
+                                            style={styles.filterOptionItem}
+                                            activeOpacity={0.8}
+                                            onPress={() => setSelectedFilter(filter.id)}
                                         >
-                                            <Image
-                                                source={{ uri: selectedImages[activeImageIndex] }}
-                                                style={styles.filterThumbImage}
-                                                resizeMode="cover"
-                                            />
-                                            {filter.opacity > 0 && (
-                                                <View
-                                                    style={[
-                                                        StyleSheet.absoluteFill,
-                                                        {
-                                                            backgroundColor: filter.overlayColor,
-                                                            opacity: filter.opacity,
-                                                        },
-                                                    ]}
+                                            <View
+                                                style={[
+                                                    styles.filterPreviewThumb,
+                                                    isFilterActive && styles.filterPreviewThumbActive,
+                                                ]}
+                                            >
+                                                <Image
+                                                    source={{ uri: selectedImages[activeImageIndex] }}
+                                                    style={styles.filterThumbImage}
+                                                    resizeMode="cover"
                                                 />
-                                            )}
-                                        </View>
-                                        <Text
-                                            style={[
-                                                styles.filterNameText,
-                                                isFilterActive && styles.filterNameTextActive,
-                                            ]}
-                                        >
-                                            {filter.name}
-                                        </Text>
-                                    </TouchableOpacity>
-                                );
-                            })}
-                        </ScrollView>
+                                                {filter.opacity > 0 && (
+                                                    <View
+                                                        style={[
+                                                            StyleSheet.absoluteFill,
+                                                            {
+                                                                backgroundColor: filter.overlayColor,
+                                                                opacity: filter.opacity,
+                                                            },
+                                                        ]}
+                                                    />
+                                                )}
+                                            </View>
+                                            <Text
+                                                style={[
+                                                    styles.filterNameText,
+                                                    isFilterActive && styles.filterNameTextActive,
+                                                ]}
+                                            >
+                                                {filter.name}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    );
+                                })}
+                            </ScrollView>
+                        </View>
+                    </ScrollView>
+
+                    {/* Nút nổi phía dưới */}
+                    <View style={[styles.bottomBarContainer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+                        <PrimaryButton
+                            title="Next"
+                            onPress={handleNext}
+                        />
                     </View>
                 </View>
             )}
@@ -479,7 +661,8 @@ export default function CreatePostScreen() {
                         </View>
                     </ScrollView>
 
-                    <View style={[styles.bottomShareContainer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+                    {/* Nút nổi phía dưới */}
+                    <View style={[styles.bottomBarContainer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
                         <PrimaryButton
                             title="Share"
                             onPress={handleSharePost}
@@ -528,6 +711,15 @@ export default function CreatePostScreen() {
                     </View>
                 </View>
             </Modal>
+
+            {/* Custom Alert */}
+            <CustomAlert
+                visible={alertConfig.visible}
+                title={alertConfig.title}
+                content={alertConfig.content}
+                buttonText={alertConfig.buttonText}
+                onClose={alertConfig.onClose}
+            />
         </SafeAreaView>
     );
 }
@@ -535,56 +727,52 @@ export default function CreatePostScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#FFFFFF',
+        backgroundColor: '#f5f4f7',
     },
     flex1: {
         flex: 1,
     },
-    topHeader: {
-        height: 52,
+    headerContainer: {
+        width: '100%',
+        backgroundColor: 'transparent',
+    },
+    headerBar: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        paddingHorizontal: 20,
-        borderBottomWidth: 1,
-        borderColor: '#F1F5F9',
+        paddingHorizontal: 24,
+        paddingTop: 24,
+        marginBottom: 16,
     },
-    headerBtn: {
+    headerTitle: {
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 22,
+        color: '#0F172A',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
+    },
+    backBtn: {
         width: 36,
         height: 36,
         justifyContent: 'center',
         alignItems: 'flex-start',
     },
-    headerTitle: {
-        fontFamily: 'GoogleSans-Bold',
-        fontSize: 17,
-        color: '#0F172A',
-        includeFontPadding: false,
-        textAlignVertical: 'center',
-    },
-    nextTextBtn: {
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-    },
-    nextBtnText: {
-        fontFamily: 'GoogleSans-Bold',
-        fontSize: 15,
-        color: '#3B82F6',
-        includeFontPadding: false,
-    },
-    headerPlaceholder: {
+    placeholderRight: {
         width: 36,
     },
     stepContainer: {
         flex: 1,
-        backgroundColor: '#FFFFFF',
+        backgroundColor: '#f5f4f7',
+    },
+    stepScrollContent: {
+        paddingBottom: 110,
     },
 
     // Step 1: Select
     mainPreviewContainer: {
         width: SCREEN_WIDTH,
         height: SCREEN_WIDTH,
-        backgroundColor: '#F8FAFC',
+        backgroundColor: '#E2E8F0',
         justifyContent: 'center',
         alignItems: 'center',
     },
@@ -616,12 +804,12 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         paddingHorizontal: 20,
         paddingVertical: 14,
-        backgroundColor: '#FFFFFF',
+        backgroundColor: 'transparent',
     },
     galleryRecentsHeader: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 6,
+        gap: 8,
     },
     galleryTitle: {
         fontFamily: 'GoogleSans-Bold',
@@ -629,11 +817,22 @@ const styles = StyleSheet.create({
         color: '#0F172A',
         includeFontPadding: false,
     },
+    selectedCountBadge: {
+        backgroundColor: '#3B82F6',
+        paddingHorizontal: 8,
+        paddingVertical: 2,
+        borderRadius: 12,
+    },
+    selectedCountText: {
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 11,
+        color: '#FFFFFF',
+    },
     openPickerBtn: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 6,
-        backgroundColor: '#F1F5F9',
+        backgroundColor: '#E2E8F0',
         paddingHorizontal: 12,
         paddingVertical: 6,
         borderRadius: 20,
@@ -648,14 +847,14 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         paddingHorizontal: 20,
-        gap: 12,
+        gap: THUMB_GAP,
         paddingTop: 8,
     },
     cameraTileBtn: {
-        width: 76,
-        height: 76,
+        width: THUMB_SIZE,
+        height: THUMB_SIZE,
         borderRadius: 12,
-        backgroundColor: '#F1F5F9',
+        backgroundColor: 'transparent',
         borderWidth: 1.5,
         borderColor: '#CBD5E1',
         borderStyle: 'dashed',
@@ -669,30 +868,12 @@ const styles = StyleSheet.create({
         color: '#475569',
         includeFontPadding: false,
     },
-    galleryAddTileBtn: {
-        width: 76,
-        height: 76,
-        borderRadius: 12,
-        backgroundColor: '#EFF6FF',
-        borderWidth: 1.5,
-        borderColor: '#BFDBFE',
-        borderStyle: 'dashed',
-        justifyContent: 'center',
-        alignItems: 'center',
-        gap: 4,
-    },
-    galleryAddTileText: {
-        fontFamily: 'GoogleSans-Bold',
-        fontSize: 11,
-        color: '#2563EB',
-        includeFontPadding: false,
-    },
     thumbnailList: {
-        gap: 12,
+        gap: THUMB_GAP,
     },
     thumbnailWrapper: {
-        width: 76,
-        height: 76,
+        width: THUMB_SIZE,
+        height: THUMB_SIZE,
         borderRadius: 12,
         overflow: 'hidden',
         borderWidth: 2,
@@ -702,18 +883,44 @@ const styles = StyleSheet.create({
     thumbnailSelected: {
         borderColor: '#3B82F6',
     },
+    thumbnailActivePreview: {
+        borderColor: '#0F172A',
+        borderWidth: 2.5,
+    },
     thumbnailImage: {
         width: '100%',
         height: '100%',
     },
-    removeImageBadge: {
+    selectBadge: {
         position: 'absolute',
-        top: 4,
-        right: 4,
-        backgroundColor: 'rgba(15, 23, 42, 0.75)',
-        width: 18,
-        height: 18,
-        borderRadius: 9,
+        top: 5,
+        right: 5,
+        width: 20,
+        height: 20,
+        borderRadius: 10,
+        backgroundColor: 'rgba(15, 23, 42, 0.45)',
+        borderWidth: 1.5,
+        borderColor: '#FFFFFF',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    selectBadgeActive: {
+        backgroundColor: '#3B82F6',
+        borderColor: '#FFFFFF',
+    },
+    selectBadgeEmpty: {
+        width: 0,
+        height: 0,
+    },
+    selectBadgeNum: {
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 10,
+        color: '#FFFFFF',
+        includeFontPadding: false,
+    },
+    thumbLoadingBox: {
+        width: THUMB_SIZE,
+        height: THUMB_SIZE,
         justifyContent: 'center',
         alignItems: 'center',
     },
@@ -733,8 +940,7 @@ const styles = StyleSheet.create({
         height: '100%',
     },
     editControlsContainer: {
-        flex: 1,
-        justifyContent: 'flex-end',
+        marginTop: 20,
         paddingBottom: 28,
     },
     sectionSmallLabel: {
@@ -786,7 +992,7 @@ const styles = StyleSheet.create({
     },
     captionRowCard: {
         flexDirection: 'row',
-        backgroundColor: '#F8FAFC',
+        backgroundColor: '#FFFFFF',
         borderRadius: 16,
         padding: 12,
         gap: 12,
@@ -833,7 +1039,7 @@ const styles = StyleSheet.create({
         paddingHorizontal: 14,
         paddingVertical: 8,
         borderRadius: 12,
-        backgroundColor: '#F1F5F9',
+        backgroundColor: '#E2E8F0',
     },
     locationPillActive: {
         backgroundColor: '#0284C7',
@@ -856,7 +1062,7 @@ const styles = StyleSheet.create({
         flex: 1,
         paddingVertical: 10,
         borderRadius: 12,
-        backgroundColor: '#F1F5F9',
+        backgroundColor: '#E2E8F0',
         alignItems: 'center',
         justifyContent: 'center',
     },
@@ -873,16 +1079,14 @@ const styles = StyleSheet.create({
         fontFamily: 'GoogleSans-Bold',
         color: '#FFFFFF',
     },
-    bottomShareContainer: {
+    bottomBarContainer: {
         position: 'absolute',
         bottom: 0,
         left: 0,
         right: 0,
         paddingHorizontal: 20,
         paddingTop: 12,
-        backgroundColor: '#FFFFFF',
-        borderTopWidth: 1,
-        borderColor: '#F1F5F9',
+        backgroundColor: 'transparent',
     },
 
     // Camera Fullscreen Modal

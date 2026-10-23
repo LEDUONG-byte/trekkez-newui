@@ -295,7 +295,6 @@ export default function TeamScreen() {
                                                     onPress={() => handleNavigateManage(team.id)}
                                                 >
                                                     <Text style={styles.manageBtnText}>Manage Team</Text>
-                                                    <Octicons name="arrow-right" size={14} color="#FFFFFF" />
                                                 </TouchableOpacity>
                                             ) : (
                                                 <View style={styles.memberStatusBadge}>
