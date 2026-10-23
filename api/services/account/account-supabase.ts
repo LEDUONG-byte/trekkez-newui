@@ -112,17 +112,47 @@ export async function updateProfile(
     throw new Error("Không có user ID.");
   }
 
+  if (!values || typeof values !== "object" || Array.isArray(values)) {
+    throw new Error("Dữ liệu cập nhật Profile không hợp lệ.");
+  }
+
+  const allowedFields = new Set(["username", "full_name", "avatar_url", "bio", "phone"]);
+  const patch: UpdateSupabaseProfileInput = {};
+  for (const [key, value] of Object.entries(values)) {
+    if (!allowedFields.has(key)) {
+      throw new Error(`Trường Profile không được phép cập nhật: ${key}.`);
+    }
+    if (value !== undefined) {
+      if (value !== null && typeof value !== "string") {
+        throw new Error(`Giá trị Profile '${key}' phải là chuỗi hoặc null.`);
+      }
+      patch[key as keyof UpdateSupabaseProfileInput] = value as never;
+    }
+  }
+  if (Object.keys(patch).length === 0) {
+    throw new Error("Không có trường Profile nào để cập nhật.");
+  }
+
   await supabaseRequest(
     `/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}`,
     {
       method: "PATCH",
-      body: values,
+      body: patch,
       accessToken,
       expectedUserId: userId,
     },
   );
 
-  return getProfileById(accessToken, userId);
+  const updated = await getProfileById(accessToken, userId);
+  if (!updated) {
+    throw new Error("Supabase chưa xác nhận hồ sơ đã được cập nhật.");
+  }
+  for (const [key, value] of Object.entries(patch)) {
+    if (updated[key as keyof SupabaseProfile] !== value) {
+      throw new Error(`Supabase chưa xác nhận trường Profile '${key}' đã được cập nhật.`);
+    }
+  }
+  return updated;
 }
 
 function normalizeAvatarMimeType(mimeType?: string | null) {

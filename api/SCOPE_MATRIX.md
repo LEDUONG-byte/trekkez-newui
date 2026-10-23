@@ -1,23 +1,24 @@
-# Đối chiếu New UI → backend (giữ/bỏ)
+# Phạm vi backend TrekkEZ New UI
 
-| New UI đang có | Backend giữ lại | Giới hạn |
+| Luồng New UI | API được giữ | Giới hạn hiện tại |
 |---|---|---|
-| `app/login.tsx` | `auth/`, `core/` | Form & OAuth chưa nối; chỉ là SDK |
-| `app/(tabs)/index.tsx`, `app/post.tsx` | `community/`, `social/` | Feed, posts, comment, follow; UI đang mock |
-| `app/(tabs)/plan.tsx`, `app/makeaplan.tsx` | `plan-team-supabase`, `plan-item-catalog`, `trip-time` | Plan/team/wizard; route cloud chưa được xác minh |
-| `app/makearoute.tsx` | `mapbox-directions`, `types/route` | Lấy tuyến cơ bản, chưa có backend cloud save Route |
-| `app/(tabs)/team.tsx`, team cards, invitation users trong wizard | `team/`, `team-invitation`, `team-join-request` | Cần ghép form và map model |
-| `app/(tabs)/profile.tsx` | `account/`, `social/`, `activity/activity-profile.ts` | Chỉ đọc số liệu Activity, không ghi GPS; chưa định nghĩa streak |
+| Login/session | Auth session + Supabase Auth | Email/password đã nối; Google OAuth cần provider/callback. |
+| Home/Post/Comment/Following | Community + social | Following xác minh attribution trước khi lọc bài. |
+| Plan wizard/list/manage | Plan, checklist, mapper | RLS/schema và ghi thực cần test ở staging. |
+| Route builder/list/detail | Mapbox directions + route read/write | Save gồm nhiều request, chưa atomic; cần schema/RLS chính xác. |
+| Team/create/join/manage/invite | Team, join request, invitation | Kiểm thử quyền owner/member bằng nhiều tài khoản. |
+| Profile/follows/avatar | Account + social | Upload yêu cầu bucket/policy phù hợp. |
+| Profile activity totals | Activity profile | Chỉ đọc `activity_sessions`; không ghi GPS hay track points. |
 
-## Bỏ vì New UI không có tính năng tương ứng
+## Ngoài phạm vi
 
-- Watch/Zepp/Amazfit/Health metrics và `zepp-watch/`, Zepp bridge.
-- Shop/product catalog (khác danh mục trang bị trong kế hoạch).
-- Safety center/emergency contacts.
-- Notifications page/inbox (và `notification-supabase.ts`).
-- Activity GPS recorder, background location, Activity track upload, track points, SQLite/offline maps, Trip live tracking.
-- `route-navigation.ts` vì chưa có chức năng điều hướng live/progress được thể hiện trong New UI.
+- Watch/Zepp/Amazfit/health metrics.
+- Shop/product catalog ngoài equipment catalog của Plan.
+- Safety center, emergency contacts và notifications riêng.
+- Background GPS, track upload, SQLite/offline maps và live navigation.
 
-## Kiểm chứng
+## Quy tắc thay đổi
 
-Chỉ so sánh các file có trong hai ZIP. Chưa test thiết bị, chưa xác nhận schema Supabase.
+- Backend-only branch: thay đổi source và tests nằm dưới `api/`.
+- Không thay đổi `app/`, `components/`, `assets/`, layout/styles/navigation hoặc package/dependency.
+- Không tự sửa schema, migration, RLS hay dữ liệu production.

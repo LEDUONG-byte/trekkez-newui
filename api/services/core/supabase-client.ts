@@ -64,20 +64,31 @@ export async function getAllSupabaseRows<T>(
   },
 ): Promise<T[]> {
   const pageSize = options.pageSize ?? 1000;
+  if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 1000) {
+    throw new RangeError("pageSize phải là số nguyên từ 1 đến 1000.");
+  }
+
+  const queryIndex = path.indexOf("?");
+  const resource = queryIndex < 0 ? path : path.slice(0, queryIndex);
+  const query = queryIndex < 0 ? "" : path.slice(queryIndex + 1);
+  const params = new URLSearchParams(query);
+  params.set("limit", String(pageSize));
+
   let offset = 0;
   const allRows: T[] = [];
 
   while (true) {
-    const separator = path.includes("?") ? "&" : "?";
-    const data = await supabaseRequest(
-      `${path}${separator}limit=${pageSize}&offset=${offset}`,
-      {
-        accessToken: options.accessToken,
-        expectedUserId: options.expectedUserId,
-      },
-    );
+    params.set("offset", String(offset));
+    const data = await supabaseRequest(`${resource}?${params.toString()}`, {
+      accessToken: options.accessToken,
+      expectedUserId: options.expectedUserId,
+    });
 
-    const rows = Array.isArray(data) ? (data as T[]) : [];
+    if (!Array.isArray(data)) {
+      throw new Error("Supabase trả về dữ liệu phân trang không đúng định dạng danh sách.");
+    }
+
+    const rows = data as T[];
     allRows.push(...rows);
 
     if (rows.length < pageSize) {

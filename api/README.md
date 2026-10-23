@@ -1,20 +1,22 @@
-# TrekkEZ Backend (scoped to New UI) — backend only
+# TrekkEZ API services
 
-## Quy tắc dự án
+## Phạm vi
 
-- `trekkez-newui-main.zip` là chuẩn duy nhất về chức năng và màn hình.
-- ZIP này **chỉ** có `backend/`. Không có, không chỉnh sửa và không đổi tên bất kỳ file/frontend hiện tại nào.
-- Chỉ giữ Auth, Home/Post/Community/Follow, Plan/Route/Equipment catalog (trong wizard), Team/Join/Invite, Profile và **chỉ đọc** thống kê Activity cho Profile.
-- Không có Watch/Zepp/Amazfit, Shop, Safety, Notification riêng, ghi GPS/background, SQLite offline tracking, quản lý Activity chuyên biệt hay điều hướng GPS đang chạy.
-- Backend ở đây là TypeScript client-side services/SDK giao tiếp Supabase, **không phải** backend server có thể tự chạy. Supabase Auth/DB/RPC/Storage vẫn nằm trên cloud.
-- Frontend mới hiện đang dùng mock, chưa gọi các service này. Việc chỉ copy backend không làm app kết nối dữ liệu thật. Phải được phép tích hợp ở giai đoạn khác.
+`api/` chứa TypeScript client services/adapters gọi Supabase Auth, PostgREST và Storage. Đây không phải server backend độc lập; dữ liệu và chính sách truy cập vẫn được thực thi trên Supabase.
 
-## Cài đặt
+Các luồng đang được gọi từ ứng dụng ở snapshot `main` `f0be299` gồm:
 
-Giải nén đặt `backend/` cạnh `app/`, `components/` của New UI. Không ghi đè bất kỳ file gốc nào.
-Các import của backend dùng đường dẫn tương đối. Backend kế thừa dependencies đã có trong New UI (`@supabase/supabase-js`, AsyncStorage, `react-native-url-polyfill`); không yêu cầu thêm package mới.
+- Auth: email/password, khôi phục phiên, kiểm tra phiên và đăng xuất.
+- Home/Community: tải feed, Following, like, save, bình luận và bài đăng.
+- Team: danh sách/chi tiết, tạo nhóm, thành viên, yêu cầu tham gia và lời mời.
+- Plan/Route: đọc dữ liệu, tạo Plan, tạo/đọc Route và waypoint.
+- Profile: đọc/cập nhật hồ sơ, avatar, kết nối follow và chỉ đọc tổng hợp Activity.
 
-## Biến môi trường (chỉ khi chạy tích hợp)
+Khi làm backend, chỉ sửa `api/`; không đổi `app/`, `components/`, bố cục, style, điều hướng, dependency hay schema Supabase nếu chưa được yêu cầu riêng.
+
+## Cấu hình
+
+Tạo `.env` cục bộ từ mẫu cấu hình của dự án, dùng URL Supabase và anon/publishable key:
 
 ```dotenv
 EXPO_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
@@ -22,15 +24,33 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY=<publishable-or-anon-key>
 EXPO_PUBLIC_MAPBOX_KEY=<optional-public-mapbox-token>
 ```
 
-KHÔNG chia sẻ `service_role`, DB password hoặc tokens cá nhân; `EXPO_PUBLIC_*` luôn hiển thị công khai trong bản build client.
+Không commit `.env`, service role key, database password, access token hoặc secret. Mọi biến `EXPO_PUBLIC_*` được đóng gói vào client và không phải bí mật.
 
-## Giới hạn chưa được xác minh
+## Kiểm thử
 
-- Chưa có SQL migration/schema/RLS/RPC hiện tại của project Supabase nên không thể xác nhận contract và phân quyền server.
-- Chưa chạy TypeScript với node_modules thật của project, chưa kết nối Supabase, chưa chạy Android/iOS.
-- New UI không có email/password form và Google OAuth chưa được tích hợp; auth SDK có hàm nhưng nút login mới chỉ điều hướng.
-- Module Profile Activity chỉ đọc `activity_sessions`; **không** ghi và **không** truy vấn `activity_track_points`.
-- Route được tạo ở New UI cần thiết kế lưu cloud sau; backend cũ không cung cấp Route cloud CRUD hoàn chỉnh.
-- Không phải bản production-ready; không công bố 'đã merge hoàn tất'.
+Từ thư mục gốc:
 
-Xem `SCOPE_MATRIX.md` và `INTEGRATION_MAP.md` để biết lý do giữ/bỏ từng nhóm.
+```powershell
+npx tsc --noEmit
+node api/tests/test-mappers.cjs
+node api/tests/test-gateway.cjs
+node api/tests/test-route-write.cjs
+node api/tests/test-route-detail-read.cjs
+node api/tests/test-follow-route-fix.cjs
+node api/tests/test-manage-plan.cjs
+node api/tests/test-core-pagination.cjs
+node api/tests/test-account-profile-write.cjs
+node api/tests/test-scope-check.cjs
+node api/scripts/check-scope.cjs
+```
+
+Các test `*.cjs` mock Supabase; chúng không xác nhận cấu hình RLS, SQL schema, Storage bucket, OAuth allowlist hoặc kết nối cloud thực tế.
+
+## Giới hạn cần xác minh trên staging
+
+- RLS và schema thực tế của `profiles`, `routes`, `waypoints`, Team/Plan và các RPC.
+- Ghi dữ liệu cần kiểm tra bằng hai tài khoản test khác nhau để xác nhận quyền sở hữu.
+- Google OAuth cần callback URL và cấu hình provider hợp lệ.
+- Route save gồm nhiều request, chưa phải transaction nguyên tử; cleanup khi lỗi là best effort.
+- Activity chỉ đọc `activity_sessions` để tổng hợp Profile; không ghi GPS hoặc track points.
+- Mapbox/native runtime cần test trên build thiết bị; unit test không thay thế kiểm thử đó.

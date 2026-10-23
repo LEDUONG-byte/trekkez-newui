@@ -7,7 +7,8 @@ try {
   const tracked = git(['diff', '--name-only', base, 'HEAD']).split('\n').filter(Boolean);
   const pending = git(['diff', '--name-only', 'HEAD']).split('\n').filter(Boolean);
   const staged = git(['diff', '--cached', '--name-only']).split('\n').filter(Boolean);
-  const changed = [...new Set([...tracked, ...pending, ...staged])];
+  const untracked = git(['ls-files', '--others', '--exclude-standard']).split('\n').filter(Boolean);
+  const changed = [...new Set([...tracked, ...pending, ...staged, ...untracked])];
   const other = changed.filter(p => !p.startsWith('api/'));
   if (other.length) {
     console.error('BLOCKED: changes outside api/:\n' + other.join('\n'));

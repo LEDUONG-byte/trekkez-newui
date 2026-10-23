@@ -1,14 +1,21 @@
-# Mapping New UI ↔ Backend, KHÔNG SỬA FRONTEND
+# New UI ↔ API map (backend reference)
 
-Đây là tài liệu cho giai đoạn tích hợp **sau này**, không phải các thay đổi đã áp dụng.
+Tài liệu phản ánh các luồng đã nối trong snapshot `main` `f0be299`. Backend-only changes phải giữ nguyên toàn bộ UI/UX và chỉ sửa trong `api/`.
 
-| File frontend New UI (giữ nguyên) | API backend liên quan |
-|---|---|
-| `app/login.tsx` | `auth` |
-| `app/(tabs)/index.tsx`, `app/post.tsx` | `community`, `posts`, `social` |
-| `app/(tabs)/plan.tsx`, `app/makeaplan.tsx` | `plans`, `planCatalog`, `planTime`, `teams`, `teamInvitations` |
-| `app/makearoute.tsx` | `directions` |
-| `app/(tabs)/team.tsx` | `teams`, `joinRequests` |
-| `app/(tabs)/profile.tsx` | `account`, `social`, `activityProfile` |
+| Luồng ứng dụng | API services | Ghi chú |
+|---|---|---|
+| Login, session guard, logout | `auth/`, `core/` | Email/password được nối; Google OAuth còn phụ thuộc callback/provider config. |
+| Home, post, comments, Following | `community/`, `social/`, `newui-gateway.ts` | Theo dõi tác giả; bài có owner/author không xác minh được không đưa vào Following. |
+| Team, create/join/manage/invite | `team/`, `manage-plan-adapter.ts` | Quyền owner/member và RLS cần kiểm tra bằng tài khoản staging. |
+| Plan list, create, checklist | `plan/`, `manage-plan-adapter.ts`, `newui-gateway.ts` | Lưu Plan phụ thuộc bảng/columns và quyền Supabase. |
+| Route list, detail, save | `route/`, `newui-gateway.ts` | Route save ghi `routes` và `waypoints`; schema/RLS phải khớp trước khi ghi. |
+| Profile, avatar, follow counts | `account/`, `social/` | Cập nhật Profile cần đọc lại để xác nhận giá trị được lưu. |
+| Activity totals trên Profile | `activity/activity-profile.ts` | Read-only `activity_sessions`; không ghi GPS, không đọc track points. |
 
-Hiện các màn hình vẫn dùng MOCK/INITIAL data; không được phép chỉnh sửa frontend, vì vậy chưa có màn hình nào thực sự gọi backend. Muốn hoạt động thật, frontend owner cần nối dữ liệu và actions sau này mà không thay đổi layout/styles/tên file.
+## Không thuộc phạm vi hiện tại
+
+Watch/Zepp/Amazfit, shop, safety center, notifications riêng, ghi GPS nền, offline tracking và live navigation. Không thêm lại các dịch vụ này chỉ vì chúng tồn tại ở dự án cũ.
+
+## Giới hạn kiểm thử
+
+Các test trong `api/tests/` dùng mock hoặc kiểm tra cấu trúc; không thay thế kiểm thử RLS/schema/RPC/Storage trên Supabase staging.
