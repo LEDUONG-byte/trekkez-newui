@@ -208,19 +208,29 @@ export default function ManagePlanScreen() {
 
                             if (member.avatarUrl) {
                                 return (
-                                    <Image
+                                    <TouchableOpacity
                                         key={member.id}
-                                        source={{ uri: member.avatarUrl }}
-                                        style={[styles.teamAvatarImg, offsetStyle]}
-                                    />
+                                        activeOpacity={0.8}
+                                        onPress={() => router.push({ pathname: '/profilepub', params: { id: member.id } })}
+                                    >
+                                        <Image
+                                            source={{ uri: member.avatarUrl }}
+                                            style={[styles.teamAvatarImg, offsetStyle]}
+                                        />
+                                    </TouchableOpacity>
                                 );
                             }
                             return (
-                                <View key={member.id} style={[styles.teamAvatarPlaceholder, offsetStyle]}>
+                                <TouchableOpacity
+                                    key={member.id}
+                                    activeOpacity={0.8}
+                                    onPress={() => router.push({ pathname: '/profilepub', params: { id: member.id } })}
+                                    style={[styles.teamAvatarPlaceholder, offsetStyle]}
+                                >
                                     <Text style={styles.avatarQuestion}>
                                         {member.name ? member.name.charAt(0).toUpperCase() : '?'}
                                     </Text>
-                                </View>
+                                </TouchableOpacity>
                             );
                         })}
 

@@ -37,6 +37,7 @@ export type HomePostCard = {
   isLiked: boolean;
   isBookmarked: boolean;
   isFollowing?: boolean;
+  feedTimestamp?: string;
   authorId?: string;
   authorIdentityVerified?: boolean;
 };
@@ -49,6 +50,7 @@ export type HomeTeamCard = {
   maxMembers: number;
   isJoined: boolean;
   caption: string;
+  feedTimestamp?: string;
 };
 export type HomeCard = HomePostCard | HomeTeamCard;
 
@@ -69,7 +71,7 @@ export function teamToCard(team: Team): TeamCard {
     description: team.description,
     createdAt: isoDay(team.createdAt),
     isJoined: team.joined || team.mine,
-    allowMatchmaking: team.allowMatchmaking !== false,
+    allowMatchmaking: team.allowMatchmaking === true,
   };
 }
 
@@ -113,6 +115,7 @@ export function postToHomeCard(post: CommunityPost): HomePostCard {
     commentCount: post.comments,
     isLiked: post.liked === true,
     isBookmarked: post.saved === true,
+    feedTimestamp: post.createdAt,
   };
 }
 
@@ -126,5 +129,38 @@ export function teamToHomeCard(team: Team): HomeTeamCard {
     maxMembers: team.maxMembers ?? 20,
     isJoined: team.joined || team.mine,
     caption: team.description,
+    feedTimestamp: team.createdAt,
   };
+}
+
+function timestampOf(card: HomeCard): number {
+  const value = card.feedTimestamp ? Date.parse(card.feedTimestamp) : Number.NaN;
+  return Number.isFinite(value) ? value : 0;
+}
+
+export function interleaveHomeFeed(posts: HomePostCard[], teams: HomeTeamCard[]): HomeCard[] {
+  const orderedPosts = [...posts].sort((a, b) => timestampOf(b) - timestampOf(a));
+  const orderedTeams = [...teams].sort((a, b) => timestampOf(b) - timestampOf(a));
+  const newestPost = orderedPosts.length ? timestampOf(orderedPosts[0]) : Number.NEGATIVE_INFINITY;
+  const newestTeam = orderedTeams.length ? timestampOf(orderedTeams[0]) : Number.NEGATIVE_INFINITY;
+  const firstType: HomeCard['itemType'] = newestTeam > newestPost ? 'TEAM' : 'POST';
+  const result: HomeCard[] = [];
+  let postIndex = 0;
+  let teamIndex = 0;
+  let nextType = firstType;
+
+  while (postIndex < orderedPosts.length || teamIndex < orderedTeams.length) {
+    if (nextType === 'POST' && postIndex < orderedPosts.length) {
+      result.push(orderedPosts[postIndex++]);
+      nextType = 'TEAM';
+    } else if (nextType === 'TEAM' && teamIndex < orderedTeams.length) {
+      result.push(orderedTeams[teamIndex++]);
+      nextType = 'POST';
+    } else if (postIndex < orderedPosts.length) {
+      result.push(orderedPosts[postIndex++]);
+    } else {
+      result.push(orderedTeams[teamIndex++]);
+    }
+  }
+  return result;
 }

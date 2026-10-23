@@ -18,12 +18,14 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 export interface PostData {
     id?: string;
+    authorId?: string;
     avatar?: ImageSourcePropType | string;
     username?: string;
     isFollowing?: boolean;
     showFollowButton?: boolean;
     showPostOptions?: boolean;
     onFollowPress?: () => void;
+    onAuthorPress?: () => void;
     onDeletePress?: () => Promise<void>;
     images?: (ImageSourcePropType | string)[];
     tags?: string[];
@@ -52,6 +54,7 @@ export default function PostCard(props: PostCardProps) {
         showFollowButton = data.showFollowButton ?? true,
         showPostOptions = data.showPostOptions ?? false,
         onFollowPress = data.onFollowPress,
+        onAuthorPress = data.onAuthorPress,
         onDeletePress = data.onDeletePress,
         images = data.images ?? [],
         tags = data.tags ?? [],
@@ -115,7 +118,14 @@ export default function PostCard(props: PostCardProps) {
         <View style={styles.cardContainer}>
             {/* Header: Avatar, Username, Follow Button */}
             <View style={styles.header}>
-                <View style={styles.userInfo}>
+                <TouchableOpacity
+                    style={styles.userInfo}
+                    activeOpacity={onAuthorPress ? 0.7 : 1}
+                    disabled={!onAuthorPress}
+                    onPress={onAuthorPress}
+                    accessibilityRole={onAuthorPress ? 'button' : undefined}
+                    accessibilityLabel={onAuthorPress ? `View @${username}'s profile` : undefined}
+                >
                     {avatar ? (
                         <Image
                             source={typeof avatar === 'string' ? { uri: avatar } : avatar}
@@ -125,7 +135,7 @@ export default function PostCard(props: PostCardProps) {
                         <View style={[styles.avatar, styles.avatarPlaceholder]} />
                     )}
                     <Text style={styles.username}>@{username}</Text>
-                </View>
+                </TouchableOpacity>
 
                 <View style={styles.headerActions}>
                     {showFollowButton ? (

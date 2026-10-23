@@ -12,6 +12,7 @@ export type CommunityPost = {
   liked?: boolean;
   saved?: boolean;
   mine?: boolean;
+  createdAt?: string;
   authorId?: string;
   /** False only when legacy author text disagrees with current authenticated profile. */
   authorIdentityVerified?: boolean;

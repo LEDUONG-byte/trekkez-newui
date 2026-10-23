@@ -20,6 +20,7 @@ const team = { id: 't1', ownerId:'u1', name:'Hiking Team', description:'Walk', m
   mine:false, joined:true, allowMatchmaking:true, createdAt:'2026-10-21T00:00:00Z'};
 const privateTeam = {...team,id:'t2',name:'Private Team',allowMatchmaking:false};
 const teamWithoutRouteWaypoint = {...team,id:'t3',name:'No waypoint Team',joined:false};
+const teamWithoutExplicitPublicSetting = {...team,id:'t4',name:'Unspecified privacy',allowMatchmaking:undefined};
 const post = {id:'c1', authorId:'u2', author:'Member', title:'Trip', content:'Hello', image:'',
   tag:'Ảnh đẹp', likes:3, comments:2, liked:false, saved:false};
 const services = {
@@ -27,14 +28,15 @@ const services = {
     signInWithEmail:()=>{}, signInWithGoogleToken:()=>{}, clearAuthSession:()=>{}},
   '../services/account/account-supabase': {getProfileById:async()=>({full_name:'Demo', username:'demo',avatar_url:null})},
   '../services/activity/activity-profile': {getActivityProfileTotals:async()=>({totalActivities:2,totalDistanceMeters:12500,totalMovingSeconds:3660,totalElevationGainMeters:400})},
-  '../services/team/team-supabase': {getRemoteTeams:async()=>[team,privateTeam,teamWithoutRouteWaypoint]},
+  '../services/team/team-supabase': {getRemoteTeams:async()=>[team,privateTeam,teamWithoutRouteWaypoint,teamWithoutExplicitPublicSetting]},
   '../services/community/community-supabase': {getRemoteCommunityPosts:async()=>[post]},
   '../services/plan/plan-team-supabase': {getRemotePlans:async()=>[{
     id:'p1',routeId:'r1',teamId:'t1',mode:'team',difficulty:'easy',
     title:'Mountain trip',ownerId:'u2',notes:'',startAt:'22/10/2026 07:00',createdAt:'2026-10-20T00:00:00Z'},
     {id:'p2',routeId:'r1',teamId:'t1',mode:'personal',title:'Personal trip',startAt:'23/10/2026 07:00'},
     {id:'p3',routeId:'r1',teamId:'t2',mode:'team',title:'Private trip',startAt:'24/10/2026 07:00'},
-    {id:'p4',routeId:'r2',teamId:'t3',mode:'team',title:'No coordinates',startAt:'25/10/2026 07:00'}]},
+    {id:'p4',routeId:'r2',teamId:'t3',mode:'team',title:'No coordinates',startAt:'25/10/2026 07:00'},
+    {id:'p5',routeId:'r1',teamId:'t4',mode:'team',title:'Privacy unspecified',startAt:'26/10/2026 07:00'}]},
   '../services/route/route-read': {getRemoteRouteSummaries:async()=>[{
     id:'r1',title:'Trail',mine:true,details:'',startDate:'',createdAt:''}]},
   '../services/plan/plan-item-catalog': {getPlanItemCategories:async()=>[{id:'food',name:'FOOD',items:[]}]},

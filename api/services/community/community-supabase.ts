@@ -309,6 +309,7 @@ export async function getRemoteCommunityPosts(
       liked: likedPostIds.has(row.id),
       saved: savedPostIds.has(row.id),
       mine: row.owner_id === auth.userId,
+      createdAt: row.created_at,
       authorId: row.owner_id ?? undefined,
       authorIdentityVerified: !row.owner_id || !profiles.has(row.owner_id) ||
         [profiles.get(row.owner_id)?.full_name, profiles.get(row.owner_id)?.username]

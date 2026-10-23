@@ -65,3 +65,35 @@ export async function getActivityProfileTotals(
     totalElevationGainMeters: 0,
   });
 }
+
+export async function getPublicActivityProfileTotals(
+  profileUserId: string,
+): Promise<ActivityProfileTotals> {
+  if (!profileUserId) {
+    throw new Error('Thiếu ID người dùng cần xem thống kê.');
+  }
+  const auth = await getAuthSession();
+  if (!auth?.accessToken || !auth.userId) {
+    throw new Error('Cần đăng nhập để xem thống kê hoạt động.');
+  }
+  const columns = [
+    'id', 'route_id', 'started_at', 'ended_at',
+    'duration_seconds', 'distance_meters', 'elevation_gain_meters',
+  ].join(',');
+  const rows = await getAllSupabaseRows<ActivitySessionRow>(
+    `/rest/v1/activity_sessions?user_id=eq.${encodeURIComponent(profileUserId)}` +
+      `&select=${columns}&order=started_at.desc`,
+    { accessToken: auth.accessToken, expectedUserId: auth.userId },
+  );
+  return rows.reduce<ActivityProfileTotals>((totals, row) => ({
+    totalActivities: totals.totalActivities + 1,
+    totalDistanceMeters: totals.totalDistanceMeters + (Number(row.distance_meters) || 0),
+    totalMovingSeconds: totals.totalMovingSeconds + (Number(row.duration_seconds) || 0),
+    totalElevationGainMeters: totals.totalElevationGainMeters + (Number(row.elevation_gain_meters) || 0),
+  }), {
+    totalActivities: 0,
+    totalDistanceMeters: 0,
+    totalMovingSeconds: 0,
+    totalElevationGainMeters: 0,
+  });
+}

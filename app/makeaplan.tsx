@@ -7,7 +7,6 @@ import {
     ScrollView,
     KeyboardAvoidingView,
     Platform,
-    Alert,
     TextInput,
     Modal,
     TouchableWithoutFeedback,
@@ -29,6 +28,7 @@ import PillButtonGroup from '../components/PillButtonGroup';
 import PrimaryButton from '../components/PrimaryButton';
 import StepProgressBar from '../components/StepProgressBar';
 import SearchFloat from '../components/SearchFloat';
+import CustomAlert from '../components/CustomAlert';
 
 type WizardStep = 'CHOOSE_ROUTE' | 'INFORMATION' | 'TEAMING' | 'PICK_ITEM' | 'NOTE' | 'FINISH';
 type SortOption = 'name' | 'nearest' | 'creation date';
@@ -142,6 +142,9 @@ export default function MakeAPlanScreen() {
     const [availableTeams, setAvailableTeams] = useState<{ id: string; name: string }[]>([]);
     const [saveError, setSaveError] = useState('');
     const [saving, setSaving] = useState(false);
+    const [alertContent, setAlertContent] = useState('');
+    const [alertTitle, setAlertTitle] = useState('Complete this step');
+    const [alertVisible, setAlertVisible] = useState(false);
     const [routeSortBy, setRouteSortBy] = useState<SortOption>('name');
     const [isMenuVisible, setIsMenuVisible] = useState<boolean>(false);
 
@@ -235,26 +238,22 @@ export default function MakeAPlanScreen() {
         }
     }, [routeSortBy, availableRoutes]);
 
-    const showError = (message: string) => {
-        setSaveError(message);
+    const showError = (message: string, title = 'Complete this step') => {
+        setAlertTitle(title);
+        setAlertContent(message);
+        setAlertVisible(true);
         console.warn('[TrekkEZ Plan]', message);
-        // Native Alert is not shown on React Native Web: explicitly show the error.
-        if (Platform.OS === 'web') {
-            if (typeof window !== 'undefined') window.alert(`TrekkEZ Plan: ${message}`);
-        } else {
-            Alert.alert('TrekkEZ Plan', message);
-        }
     };
     const savePlan = async () => {
         if (saving) return;
-        if (!selectedRouteId) { showError('Không có tuyến đường thật. Cần tạo/lưu Route trước khi tạo Plan.'); return; }
-        if (!planName.trim()) { showError('Vui lòng nhập tên kế hoạch.'); return; }
-        if (hasTeam === 'YES' && !selectedTeamId) { showError('Hãy chọn Team có thật.'); return; }
-        if (hasTeam === 'NO' && isRandomMatchmaking === 'YES') { showError('Chưa hỗ trợ tạo Team mới qua wizard này. Hãy chọn NO cho Random Matchmaking.'); return; }
+        if (!selectedRouteId) { showError('Hãy chọn một Route đã lưu trước khi tạo Plan.', 'Choose a route'); return; }
+        if (!planName.trim()) { showError('Vui lòng nhập tên cho kế hoạch.', 'Plan information'); return; }
+        if (hasTeam === 'YES' && !selectedTeamId) { showError('Hãy chọn một Team có thật để tiếp tục.', 'Choose a team'); return; }
+        if (hasTeam === 'NO' && isRandomMatchmaking === 'YES') { showError('Tính năng tạo Team mới qua Random Matchmaking hiện chưa được hỗ trợ. Hãy chọn NO để tiếp tục.', 'Team options'); return; }
         const startAt = `${dateBegin} ${timeBegin}`;
         const expectedReturnAt = `${dateEnd} ${timeEnd}`;
         const invalid = validateTripWindow(startAt, expectedReturnAt);
-        if (invalid) { showError(invalid); return; }
+        if (invalid) { showError(invalid, 'Check trip dates'); return; }
         setSaving(true); setSaveError('');
         try {
             const session = await getAuthSession();
@@ -288,9 +287,41 @@ export default function MakeAPlanScreen() {
         finally { setSaving(false); }
     };
     const goNext = () => {
-        if (step === 'CHOOSE_ROUTE' && !selectedRouteId) {
-            showError('Chưa có Route đã lưu trên Supabase. Hãy chọn Route hoặc tạo Route mới trước khi tiếp tục.');
-            return;
+        if (step === 'CHOOSE_ROUTE') {
+            if (!selectedRouteId) {
+                showError('Hãy chọn một Route đã lưu hoặc tạo Route mới trước khi tiếp tục.', 'Choose a route');
+                return;
+            }
+        } else if (step === 'INFORMATION') {
+            if (!planName.trim()) {
+                showError('Vui lòng nhập tên cho kế hoạch.', 'Plan information');
+                return;
+            }
+            const invalidWindow = validateTripWindow(
+                `${dateBegin} ${timeBegin}`,
+                `${dateEnd} ${timeEnd}`,
+            );
+            if (invalidWindow) {
+                showError(invalidWindow, 'Check trip dates');
+                return;
+            }
+        } else if (step === 'TEAMING') {
+            if (hasTeam === 'YES' && !selectedTeamId) {
+                showError(
+                    availableTeams.length
+                        ? 'Hãy chọn một Team trong danh sách để tiếp tục.'
+                        : 'Bạn chưa có Team khả dụng. Hãy tạo hoặc tham gia Team trước.',
+                    'Choose a team',
+                );
+                return;
+            }
+            if (hasTeam === 'NO' && isRandomMatchmaking === 'YES') {
+                showError(
+                    'Tính năng tạo Team mới qua Random Matchmaking hiện chưa được hỗ trợ. Hãy chọn NO để tiếp tục.',
+                    'Team options',
+                );
+                return;
+            }
         }
         if (step === 'NOTE') { void savePlan(); return; }
         if (currentStepIndex < WIZARD_STEPS.length - 1) setCurrentStepIndex((n) => n + 1);
@@ -782,6 +813,12 @@ export default function MakeAPlanScreen() {
                     </View>
                 </TouchableWithoutFeedback>
             </Modal>
+            <CustomAlert
+                visible={alertVisible}
+                title={alertTitle}
+                content={alertContent}
+                onClose={() => setAlertVisible(false)}
+            />
         </SafeAreaView>
     );
 }

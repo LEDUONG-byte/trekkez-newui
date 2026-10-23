@@ -105,16 +105,25 @@ export default function CommentsScreen() {
 
   const renderComment = ({ item }: { item: CommunityComment }) => (
     <View style={styles.commentRow}>
-      {item.avatarUrl ? (
-        <Image source={{ uri: item.avatarUrl }} style={styles.avatar} />
-      ) : (
-        <View style={[styles.avatar, styles.avatarFallback]}>
-          <Text style={styles.avatarInitials}>{getInitials(item.name)}</Text>
-        </View>
-      )}
+      <TouchableOpacity
+        disabled={!item.userId}
+        activeOpacity={0.75}
+        onPress={() => item.userId && router.push({ pathname: '/profilepub', params: { id: item.userId } })}
+      >
+        {item.avatarUrl ? (
+          <Image source={{ uri: item.avatarUrl }} style={styles.avatar} />
+        ) : (
+          <View style={[styles.avatar, styles.avatarFallback]}>
+            <Text style={styles.avatarInitials}>{getInitials(item.name)}</Text>
+          </View>
+        )}
+      </TouchableOpacity>
       <View style={styles.commentContent}>
         <Text style={styles.commentText}>
-          <Text style={styles.commenterName}>{item.name} </Text>
+          <Text
+            style={styles.commenterName}
+            onPress={() => item.userId && router.push({ pathname: '/profilepub', params: { id: item.userId } })}
+          >{item.name} </Text>
           {item.text}
         </Text>
         <View style={styles.commentMeta}>

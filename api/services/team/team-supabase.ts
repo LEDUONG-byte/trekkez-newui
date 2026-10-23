@@ -94,7 +94,7 @@ function buildTeams(
 
     maxMembers: Math.max(2, Number(row.max_members ?? 20)),
 
-    allowMatchmaking: row.allow_matchmaking ?? true,
+    allowMatchmaking: row.allow_matchmaking === true,
 
     level: row.level ?? "Tất cả cấp độ",
 

@@ -248,7 +248,7 @@ export default function CreateTeamScreen() {
                                             isPublic && styles.privacyDescActive,
                                         ]}
                                     >
-                                        Visible on Find Team map
+                                        Shown on the map after adding a team Plan with a saved Route
                                     </Text>
                                 </View>
                             </TouchableOpacity>

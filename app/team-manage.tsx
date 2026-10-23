@@ -59,7 +59,11 @@ export default function TeamManageScreen(){
     {busy?<ActivityIndicator color="#0284C7"/>:null}
     {error?<Text style={{color:'#B91C1C',marginVertical:10}}>{error}</Text>:null}
     <Text style={{fontWeight:'700',marginTop:10}}>Members ({members.length})</Text>
-    {members.map(p=><Text key={p.userId} style={{marginVertical:6}}>{p.displayName} · {p.role}</Text>)}
+    {members.map(p=><Text
+      key={p.userId}
+      style={{marginVertical:6,color:'#0F172A'}}
+      onPress={()=>router.push({pathname:'/profilepub',params:{id:p.userId}})}
+    >{p.displayName} · {p.role}</Text>)}
     {!owner && !isMember && !busy && teamId && <View style={{marginTop:18}}>
       {pendingJoin
         ? action('Hủy yêu cầu tham gia',()=>cancelTeamJoinRequest(teamId))
@@ -68,14 +72,14 @@ export default function TeamManageScreen(){
     {owner? <>
       <Text style={{fontWeight:'700',marginTop:22}}>Pending join requests ({requests.length})</Text>
       {requests.map(req=><View key={req.userId} style={{paddingVertical:9,borderBottomWidth:1,borderColor:'#E2E8F0'}}>
-        <Text>{req.displayName}</Text>
+        <Text onPress={()=>router.push({pathname:'/profilepub',params:{id:req.userId}})}>{req.displayName}</Text>
         {action('Approve',()=>approveTeamJoinRequest(teamId!,req.userId))}
         {action('Reject',()=>rejectTeamJoinRequest(teamId!,req.userId))}
       </View>)}
       <Text style={{fontWeight:'700',marginTop:22}}>Invite member</Text>
       <TextInput placeholder="Search user name" value={query} onChangeText={setQuery} style={{padding:12,backgroundColor:'#FFFFFF',borderWidth:1,borderColor:'#CBD5E1',borderRadius:10,marginTop:9}}/>
       {action('Search user',search)}
-      {candidates.map(c=><View key={c.userId} style={{paddingVertical:10,borderBottomWidth:1,borderColor:'#E2E8F0'}}><Text>{c.displayName} @{c.username}</Text>
+      {candidates.map(c=><View key={c.userId} style={{paddingVertical:10,borderBottomWidth:1,borderColor:'#E2E8F0'}}><Text onPress={()=>router.push({pathname:'/profilepub',params:{id:c.userId}})}>{c.displayName} @{c.username}</Text>
         {!c.isMember?action('Send invitation',()=>inviteUserToTeam(teamId!,c.userId)):null}
       </View>)}
       <Text style={{fontWeight:'700',marginTop:22}}>Maximum members</Text>

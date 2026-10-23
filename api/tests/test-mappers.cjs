@@ -33,5 +33,22 @@ const post = {id:'c1',author:'Person',image:'https://example.test/p.jpg', tag:'á
 assert.deepEqual(moduleExports.postToHomeCard(post).images, ['https://example.test/p.jpg']);
 assert.equal(moduleExports.postToHomeCard(post).isLiked, true);
 assert.equal(moduleExports.teamToHomeCard(team).itemType, 'TEAM');
+const interleaved = moduleExports.interleaveHomeFeed(
+  [
+    {itemType:'POST',id:'p1',feedTimestamp:'2026-10-22T10:00:00Z'},
+    {itemType:'POST',id:'p2',feedTimestamp:'2026-10-22T08:00:00Z'},
+    {itemType:'POST',id:'p3',feedTimestamp:'2026-10-22T06:00:00Z'},
+  ],
+  [
+    {itemType:'TEAM',id:'t1',feedTimestamp:'2026-10-22T09:00:00Z'},
+    {itemType:'TEAM',id:'t2',feedTimestamp:'2026-10-22T07:00:00Z'},
+  ],
+);
+assert.deepEqual(interleaved.map(card=>card.id), ['p1','t1','p2','t2','p3']);
+const teamFirst = moduleExports.interleaveHomeFeed(
+  [{itemType:'POST',id:'p1',feedTimestamp:'2026-10-22T08:00:00Z'}],
+  [{itemType:'TEAM',id:'t1',feedTimestamp:'2026-10-22T09:00:00Z'}],
+);
+assert.deepEqual(teamFirst.map(card=>card.itemType), ['TEAM','POST']);
 assert.equal(moduleExports.routeToCard({id:'r1',title:'Route 1',mine:true,details:'',startDate:'',createdAt:''}).id, 'r1');
 console.log('PASS: New UI mappers (team, plan, route, community)');

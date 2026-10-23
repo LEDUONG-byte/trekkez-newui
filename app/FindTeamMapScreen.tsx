@@ -302,7 +302,9 @@ export default function FindTeamMapScreen() {
                     </TouchableOpacity>
                 ) : teams.length === 0 ? (
                     <View style={styles.statusCard}>
-                        <AppText style={styles.statusText}>No discoverable team plans with route locations yet.</AppText>
+                        <AppText style={styles.statusText}>
+                            No public team plans with saved routes and waypoint locations yet. Check that the team is Public, its Plan uses a Route with saved waypoints, and the discoverable-team Supabase migration has been applied.
+                        </AppText>
                     </View>
                 ) : null}
 
@@ -428,7 +430,7 @@ export default function FindTeamMapScreen() {
                                     <View style={styles.searchEmpty}>
                                         <AppText style={styles.searchEmptyText}>
                                             {teams.length === 0
-                                                ? 'No discoverable team plans with route locations yet.'
+                                                ? 'No public team plans with saved routes and waypoint locations yet.'
                                                 : 'No teams match your search.'}
                                         </AppText>
                                     </View>

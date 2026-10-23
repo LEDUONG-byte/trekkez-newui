@@ -14,6 +14,7 @@ import { getPlanItemCategories } from '../services/plan/plan-item-catalog';
 import { getAllSupabaseRows } from '../services/core/supabase-client';
 import {
   teamToCard, planToCard, routeToCard, postToHomeCard, teamToHomeCard,
+  interleaveHomeFeed,
   type HomeCard, type PlanCard, type TeamCard,
 } from './newui-mappers';
 
@@ -54,7 +55,7 @@ export async function loadFindableTeamPlans(): Promise<FindableTeamPlan[]> {
   ]);
   const discoverableTeams = new Map(
     teams
-      .filter((team) => team.allowMatchmaking !== false)
+      .filter((team) => team.allowMatchmaking === true)
       .map((team) => [team.id, team]),
   );
   const candidatePlans = plans.filter(
@@ -169,7 +170,10 @@ export async function loadPlanWizardOptions() {
 export async function loadExploreFeed(): Promise<HomeCard[]> {
   await requireViewer();
   const [posts, teams] = await Promise.all([getRemoteCommunityPosts(), getRemoteTeams()]);
-  return [...posts.map(postToHomeCard), ...teams.filter((team) => team.allowMatchmaking).map(teamToHomeCard)];
+  return interleaveHomeFeed(
+    posts.map(postToHomeCard),
+    teams.filter((team) => team.allowMatchmaking).map(teamToHomeCard),
+  );
 }
 
 /** Authoritative following IDs for the logged-in viewer; never inferred from post IDs. */

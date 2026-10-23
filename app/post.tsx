@@ -27,7 +27,7 @@ export default function PostScreen() {
       let active=true;
       void loadExploreFeed().then(cards=>{
         if(!active)return;
-        setPosts(cards.filter(c=>c.itemType==='POST').map(c=>({id:c.id,username:c.username,images:c.images,tags:c.tags,caption:c.caption,likeCount:c.likeCount,commentCount:c.commentCount,isLiked:c.isLiked,isBookmarked:c.isBookmarked,isFollowing:c.isFollowing})));
+        setPosts(cards.filter(c=>c.itemType==='POST').map(c=>({id:c.id,authorId:c.authorId,username:c.username,images:c.images,tags:c.tags,caption:c.caption,likeCount:c.likeCount,commentCount:c.commentCount,isLiked:c.isLiked,isBookmarked:c.isBookmarked,isFollowing:c.isFollowing})));
         setLoadError('');
       }).catch(e=>{if(active)setLoadError(e instanceof Error?e.message:String(e));});
       return()=>{active=false;};
@@ -71,7 +71,11 @@ export default function PostScreen() {
                 ListHeaderComponent={<>{renderHeader()}{loadError?<Text style={{color:'#B91C1C',padding:16}}>{loadError}</Text>:null}</>}
                 renderItem={({ item }) => (
                     <View style={styles.cardItemWrapper}>
-                        <PostCard {...item} onCommentPress={()=>router.push({pathname:'/comments',params:{postId:item.id}})}/>
+                        <PostCard
+                            {...item}
+                            onAuthorPress={item.authorId ? () => router.push({ pathname: '/profilepub', params: { id: item.authorId } }) : undefined}
+                            onCommentPress={()=>router.push({pathname:'/comments',params:{postId:item.id}})}
+                        />
                     </View>
                 )}
                 ItemSeparatorComponent={() => <View style={styles.dashedSeparator} />}

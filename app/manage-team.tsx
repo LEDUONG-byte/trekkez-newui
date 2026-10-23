@@ -95,7 +95,7 @@ export default function ManageTeamScreen() {
                 id: remoteTeam.id,
                 name: remoteTeam.name,
                 description: remoteTeam.description,
-                isPublic: remoteTeam.allowMatchmaking !== false,
+                isPublic: remoteTeam.allowMatchmaking === true,
                 maxMembers: remoteTeam.maxMembers ?? 20,
                 members: members.map((member) => ({
                     id: member.userId,

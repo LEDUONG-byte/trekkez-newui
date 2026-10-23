@@ -237,6 +237,10 @@ export default function HomeScreen() {
                     onLikePress={() => { void handlePostAction(item, 'like'); }}
                     onBookmarkPress={() => { void handlePostAction(item, 'save'); }}
                     onFollowPress={() => { void handleToggleFollow(item); }}
+                    onAuthorPress={item.authorId ? () => router.push({
+                        pathname: '/profilepub',
+                        params: { id: item.authorId },
+                    }) : undefined}
                     onCommentPress={() => router.push({ pathname: '/comments', params: { postId: item.id } })}
                     onSharePress={() => {
                         const message = `TrekkEZ: ${item.caption || ''}`;

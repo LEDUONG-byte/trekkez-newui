@@ -293,7 +293,7 @@ export default function TeamScreen() {
                                                     <Octicons name="check-circle" size={13} color="#059669" />
                                                     <Text style={styles.memberStatusText}>Joined as Member</Text>
                                                 </View>
-                                            ) : team.allowMatchmaking === false ? (
+                                            ) : team.allowMatchmaking !== true ? (
                                                 <View style={styles.memberStatusBadge}>
                                                     <Octicons name="lock" size={13} color="#64748B" />
                                                     <Text style={styles.memberStatusText}>Invite only</Text>
