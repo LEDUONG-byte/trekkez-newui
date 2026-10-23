@@ -41,12 +41,6 @@ const FILTER_PRESETS: FilterOption[] = [
     { id: 'bw', name: 'B&W', overlayColor: '#000000', opacity: 0.35 },
 ];
 
-const ASPECT_RATIOS: { label: string; ratio: number }[] = [
-    { label: '1:1', ratio: 1 },
-    { label: '4:5', ratio: 4 / 5 },
-    { label: '16:9', ratio: 16 / 9 },
-];
-
 const SUGGESTED_LOCATIONS = [
     'Ho Chi Minh City, Vietnam',
     'Da Lat, Lam Dong',
@@ -54,18 +48,12 @@ const SUGGESTED_LOCATIONS = [
     'Fansipan Summit',
 ];
 
-const INITIAL_MEDIA = [
-    'https://images.unsplash.com/photo-1543852786-1cf6624b9987?auto=format&fit=crop&q=80&w=600',
-    'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&q=80&w=600',
-    'https://images.unsplash.com/photo-1519681393784-d120267933ba?auto=format&fit=crop&q=80&w=600',
-];
-
 export default function CreatePostScreen() {
     const router = useRouter();
     const insets = useSafeAreaInsets();
 
     const [currentStep, setCurrentStep] = useState<Step>('SELECT');
-    const [selectedImages, setSelectedImages] = useState<string[]>(INITIAL_MEDIA);
+    const [selectedImages, setSelectedImages] = useState<string[]>([]);
     const [activeImageIndex, setActiveImageIndex] = useState<number>(0);
 
     // Camera State
@@ -76,7 +64,6 @@ export default function CreatePostScreen() {
 
     // Edit State
     const [selectedFilter, setSelectedFilter] = useState<string>('normal');
-    const [selectedRatioIndex, setSelectedRatioIndex] = useState<number>(0);
 
     // Details State
     const [caption, setCaption] = useState<string>('');
@@ -94,13 +81,16 @@ export default function CreatePostScreen() {
             const result = await ImagePicker.launchImageLibraryAsync({
                 mediaTypes: ['images'],
                 allowsMultipleSelection: true,
-                selectionLimit: 5,
+                selectionLimit: 10,
                 quality: 0.85,
             });
 
             if (!result.canceled && result.assets && result.assets.length > 0) {
                 const uris = result.assets.map((asset) => asset.uri);
-                setSelectedImages(uris);
+                setSelectedImages((prev) => {
+                    const combined = [...prev, ...uris];
+                    return Array.from(new Set(combined));
+                });
                 setActiveImageIndex(0);
             }
         } catch {
@@ -136,7 +126,7 @@ export default function CreatePostScreen() {
 
     const handleNext = () => {
         if (selectedImages.length === 0) {
-            Alert.alert('Notice', 'Please select or take at least one photo.');
+            Alert.alert('Notice', 'Please select or capture at least one photo first.');
             return;
         }
 
@@ -164,7 +154,6 @@ export default function CreatePostScreen() {
     };
 
     const currentFilterObj = FILTER_PRESETS.find((f) => f.id === selectedFilter) || FILTER_PRESETS[0];
-    const currentAspectRatio = ASPECT_RATIOS[selectedRatioIndex].ratio;
 
     return (
         <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
@@ -202,27 +191,34 @@ export default function CreatePostScreen() {
                 )}
             </View>
 
-            {/* Step 1: Select */}
+            {/* Step 1: Select Media */}
             {currentStep === 'SELECT' && (
                 <View style={styles.stepContainer}>
+                    {/* Main Image Preview */}
                     <View style={styles.mainPreviewContainer}>
-                        {selectedImages[activeImageIndex] ? (
+                        {selectedImages.length > 0 && selectedImages[activeImageIndex] ? (
                             <Image
                                 source={{ uri: selectedImages[activeImageIndex] }}
                                 style={styles.mainPreviewImage}
                                 resizeMode="cover"
                             />
                         ) : (
-                            <View style={styles.emptyPreviewBox}>
-                                <Octicons name="image" size={48} color="#94A3B8" />
-                            </View>
+                            <TouchableOpacity
+                                style={styles.emptyPreviewBox}
+                                activeOpacity={0.8}
+                                onPress={handlePickFromLibrary}
+                            >
+                                <Ionicons name="images-outline" size={48} color="#94A3B8" />
+                                <Text style={styles.emptyPromptTitle}>No photo selected</Text>
+                                <Text style={styles.emptyPromptSubtitle}>Tap to choose photos from device</Text>
+                            </TouchableOpacity>
                         )}
                     </View>
 
+                    {/* Bar thông tin & nút mở Thư viện */}
                     <View style={styles.galleryActionBar}>
                         <View style={styles.galleryRecentsHeader}>
-                            <Text style={styles.galleryTitle}>Recents</Text>
-                            <Octicons name="chevron-down" size={14} color="#0F172A" />
+                            <Text style={styles.galleryTitle}>Device photos</Text>
                         </View>
                         <TouchableOpacity
                             style={styles.openPickerBtn}
@@ -230,10 +226,11 @@ export default function CreatePostScreen() {
                             onPress={handlePickFromLibrary}
                         >
                             <Octicons name="stack" size={15} color="#0F172A" />
-                            <Text style={styles.openPickerText}>Select</Text>
+                            <Text style={styles.openPickerText}>Open Gallery</Text>
                         </TouchableOpacity>
                     </View>
 
+                    {/* Hàng chọn ảnh: Nút Chụp ảnh + Nút thêm từ Gallery + Danh sách ảnh đã chọn */}
                     <View style={styles.gridContainer}>
                         <TouchableOpacity
                             style={styles.cameraTileBtn}
@@ -244,12 +241,21 @@ export default function CreatePostScreen() {
                             <Text style={styles.cameraTileText}>Camera</Text>
                         </TouchableOpacity>
 
+                        <TouchableOpacity
+                            style={styles.galleryAddTileBtn}
+                            activeOpacity={0.8}
+                            onPress={handlePickFromLibrary}
+                        >
+                            <Ionicons name="image-outline" size={24} color="#3B82F6" />
+                            <Text style={styles.galleryAddTileText}>Add Photo</Text>
+                        </TouchableOpacity>
+
                         <FlatList
                             data={selectedImages}
                             horizontal
                             showsHorizontalScrollIndicator={false}
                             contentContainerStyle={styles.thumbnailList}
-                            keyExtractor={(_, index) => `thumb_${index}`}
+                            keyExtractor={(item, index) => `${item}_${index}`}
                             renderItem={({ item, index }) => {
                                 const isSelected = activeImageIndex === index;
                                 return (
@@ -266,18 +272,16 @@ export default function CreatePostScreen() {
                                             style={styles.thumbnailImage}
                                             resizeMode="cover"
                                         />
-                                        {selectedImages.length > 1 && (
-                                            <TouchableOpacity
-                                                style={styles.removeImageBadge}
-                                                onPress={() => {
-                                                    const updated = selectedImages.filter((_, i) => i !== index);
-                                                    setSelectedImages(updated);
-                                                    setActiveImageIndex(0);
-                                                }}
-                                            >
-                                                <Octicons name="x" size={10} color="#FFFFFF" />
-                                            </TouchableOpacity>
-                                        )}
+                                        <TouchableOpacity
+                                            style={styles.removeImageBadge}
+                                            onPress={() => {
+                                                const updated = selectedImages.filter((_, i) => i !== index);
+                                                setSelectedImages(updated);
+                                                setActiveImageIndex(0);
+                                            }}
+                                        >
+                                            <Octicons name="x" size={10} color="#FFFFFF" />
+                                        </TouchableOpacity>
                                     </TouchableOpacity>
                                 );
                             }}
@@ -286,15 +290,10 @@ export default function CreatePostScreen() {
                 </View>
             )}
 
-            {/* Step 2: Edit */}
+            {/* Step 2: Edit & Filters */}
             {currentStep === 'EDIT' && (
                 <View style={styles.stepContainer}>
-                    <View
-                        style={[
-                            styles.editPreviewWrapper,
-                            { aspectRatio: currentAspectRatio },
-                        ]}
-                    >
+                    <View style={styles.editPreviewWrapper}>
                         <Image
                             source={{ uri: selectedImages[activeImageIndex] }}
                             style={styles.editPreviewImage}
@@ -314,29 +313,6 @@ export default function CreatePostScreen() {
                     </View>
 
                     <View style={styles.editControlsContainer}>
-                        <View style={styles.ratioSelectorRow}>
-                            {ASPECT_RATIOS.map((item, idx) => (
-                                <TouchableOpacity
-                                    key={item.label}
-                                    style={[
-                                        styles.ratioBtn,
-                                        selectedRatioIndex === idx && styles.ratioBtnActive,
-                                    ]}
-                                    activeOpacity={0.8}
-                                    onPress={() => setSelectedRatioIndex(idx)}
-                                >
-                                    <Text
-                                        style={[
-                                            styles.ratioBtnText,
-                                            selectedRatioIndex === idx && styles.ratioBtnTextActive,
-                                        ]}
-                                    >
-                                        {item.label}
-                                    </Text>
-                                </TouchableOpacity>
-                            ))}
-                        </View>
-
                         <Text style={styles.sectionSmallLabel}>Filters</Text>
                         <ScrollView
                             horizontal
@@ -607,7 +583,7 @@ const styles = StyleSheet.create({
     // Step 1: Select
     mainPreviewContainer: {
         width: SCREEN_WIDTH,
-        height: SCREEN_WIDTH * 0.95,
+        height: SCREEN_WIDTH,
         backgroundColor: '#F8FAFC',
         justifyContent: 'center',
         alignItems: 'center',
@@ -617,8 +593,22 @@ const styles = StyleSheet.create({
         height: '100%',
     },
     emptyPreviewBox: {
-        justifyContent: 'center',
         alignItems: 'center',
+        justifyContent: 'center',
+        padding: 20,
+        gap: 8,
+    },
+    emptyPromptTitle: {
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 15,
+        color: '#475569',
+        includeFontPadding: false,
+    },
+    emptyPromptSubtitle: {
+        fontFamily: 'GoogleSans-Regular',
+        fontSize: 13,
+        color: '#94A3B8',
+        includeFontPadding: false,
     },
     galleryActionBar: {
         flexDirection: 'row',
@@ -679,6 +669,24 @@ const styles = StyleSheet.create({
         color: '#475569',
         includeFontPadding: false,
     },
+    galleryAddTileBtn: {
+        width: 76,
+        height: 76,
+        borderRadius: 12,
+        backgroundColor: '#EFF6FF',
+        borderWidth: 1.5,
+        borderColor: '#BFDBFE',
+        borderStyle: 'dashed',
+        justifyContent: 'center',
+        alignItems: 'center',
+        gap: 4,
+    },
+    galleryAddTileText: {
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 11,
+        color: '#2563EB',
+        includeFontPadding: false,
+    },
     thumbnailList: {
         gap: 12,
     },
@@ -713,11 +721,11 @@ const styles = StyleSheet.create({
     // Step 2: Edit & Filters
     editPreviewWrapper: {
         width: SCREEN_WIDTH * 0.88,
-        maxHeight: SCREEN_WIDTH * 0.9,
+        height: SCREEN_WIDTH * 0.88,
         alignSelf: 'center',
         borderRadius: 16,
         overflow: 'hidden',
-        marginTop: 16,
+        marginTop: 20,
         backgroundColor: '#0F172A',
     },
     editPreviewImage: {
@@ -727,30 +735,7 @@ const styles = StyleSheet.create({
     editControlsContainer: {
         flex: 1,
         justifyContent: 'flex-end',
-        paddingBottom: 24,
-    },
-    ratioSelectorRow: {
-        flexDirection: 'row',
-        justifyContent: 'center',
-        gap: 10,
-        marginBottom: 16,
-    },
-    ratioBtn: {
-        paddingHorizontal: 16,
-        paddingVertical: 6,
-        borderRadius: 20,
-        backgroundColor: '#F1F5F9',
-    },
-    ratioBtnActive: {
-        backgroundColor: '#0F172A',
-    },
-    ratioBtnText: {
-        fontFamily: 'GoogleSans-Medium',
-        fontSize: 12,
-        color: '#64748B',
-    },
-    ratioBtnTextActive: {
-        color: '#FFFFFF',
+        paddingBottom: 28,
     },
     sectionSmallLabel: {
         fontFamily: 'GoogleSans-Bold',
