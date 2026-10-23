@@ -79,55 +79,45 @@ function countByPostId(rows: Array<{ post_id: string }>) {
   return counts;
 }
 
-function normalizeImageMimeType(
-  mimeType: string | null | undefined,
-  uri: string,
-) {
-  const clean = mimeType?.toLowerCase().trim();
-
-  if (clean === "image/png") {
-    return "image/png";
-  }
-
-  if (clean === "image/webp") {
-    return "image/webp";
-  }
-
-  if (clean === "image/jpeg" || clean === "image/jpg") {
-    return "image/jpeg";
-  }
-
-  const uriLower = uri.toLowerCase();
-
-  if (uriLower.includes(".png")) {
-    return "image/png";
-  }
-
-  if (uriLower.includes(".webp")) {
-    return "image/webp";
-  }
-
-  return "image/jpeg";
-}
-
-function getImageExtension(mimeType: string) {
-  if (mimeType === "image/png") {
-    return "png";
-  }
-
-  if (mimeType === "image/webp") {
-    return "webp";
-  }
-
-  return "jpg";
-}
-
 function isLocalImageUri(uri: string) {
-  return uri.startsWith("file://") || uri.startsWith("content://");
+  return uri.startsWith("file://") || uri.startsWith("content://") ||
+    uri.startsWith("blob:") || uri.startsWith("data:image/");
 }
 
 function sanitizeStorageId(value: string) {
   return value.replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
+async function prepareCommunityImage(fileUri: string): Promise<string> {
+  try {
+    const { ImageManipulator, SaveFormat } = await import("expo-image-manipulator");
+    const image = await ImageManipulator.manipulate(fileUri).renderAsync();
+    const cropSize = Math.min(image.width, image.height);
+    const manipulator = ImageManipulator.manipulate(image);
+    manipulator.crop({
+      originX: Math.floor((image.width - cropSize) / 2),
+      originY: Math.floor((image.height - cropSize) / 2),
+      width: cropSize,
+      height: cropSize,
+    });
+    if (cropSize > 1080) {
+      manipulator.resize({ width: 1080, height: 1080 });
+    }
+    const result = await manipulator.renderAsync();
+    const compressed = await result.saveAsync({
+      compress: 0.78,
+      format: SaveFormat.JPEG,
+    });
+    return compressed.uri;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("Cannot find native module") || message.includes("ExpoImageManipulator")) {
+      throw new Error(
+        "Ứng dụng chưa có native module xử lý ảnh. Hãy rebuild và cài lại Expo development build sau khi cài expo-image-manipulator.",
+      );
+    }
+    throw error;
+  }
 }
 
 export async function uploadCommunityImage(
@@ -141,13 +131,17 @@ export async function uploadCommunityImage(
   if (!fileUri) {
     throw new Error("Không có ảnh để upload.");
   }
+  if (mimeType && !mimeType.toLowerCase().startsWith("image/")) {
+    throw new Error("Tệp đã chọn không phải là ảnh.");
+  }
 
   if (!isLocalImageUri(fileUri)) {
     return fileUri;
   }
 
-  const cleanMimeType = normalizeImageMimeType(mimeType, fileUri);
-  const extension = getImageExtension(cleanMimeType);
+  const optimizedFileUri = await prepareCommunityImage(fileUri);
+  const cleanMimeType = "image/jpeg";
+  const extension = "jpg";
   const stableName = postId
     ? `post-${sanitizeStorageId(postId)}.${extension}`
     : `post-${Date.now()}.${extension}`;
@@ -156,7 +150,7 @@ export async function uploadCommunityImage(
   const publicUrl = await uploadSupabaseStorageFile({
     bucket: "community-images",
     objectPath,
-    fileUri,
+    fileUri: optimizedFileUri,
     contentType: cleanMimeType,
     accessToken: auth.accessToken,
     expectedUserId: auth.userId,

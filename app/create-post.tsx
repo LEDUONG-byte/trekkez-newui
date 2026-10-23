@@ -267,7 +267,7 @@ export default function CreatePostScreen() {
                 mediaTypes: ['images'],
                 allowsMultipleSelection: true,
                 selectionLimit: 10,
-                quality: 0.85,
+                quality: 0.78,
             });
 
             if (!result.canceled && result.assets && result.assets.length > 0) {
@@ -322,7 +322,7 @@ export default function CreatePostScreen() {
     const handleCapturePhoto = async () => {
         if (cameraRef.current) {
             try {
-                const photo = await cameraRef.current.takePictureAsync({ quality: 0.85 });
+                const photo = await cameraRef.current.takePictureAsync({ quality: 0.78 });
                 if (photo?.uri) {
                     setSelectedImages((prev) => [...prev, photo.uri]);
                     setActiveImageUri(photo.uri);
