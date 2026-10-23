@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Octicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import ExpandableCard from '../../components/ExpandableCard';
+import SearchBarHeader from '../../components/SearchBarHeader';
 
 // =====================================================================
 // TYPES & DATA MODELS
@@ -23,16 +24,53 @@ export interface TeamItem {
     id: string;
     name: string;
     isOwnedByYou: boolean;
-    color: string;
     membersCount: number;
     description?: string;
-    createdAt: string; // Định dạng ISO: YYYY-MM-DD
+    createdAt: string; // ISO format: YYYY-MM-DD
 }
 
+const TEAM_COLORS = {
+    OWNED: '#BAE6FD',
+    OTHER: '#FEF08A',
+};
+
 // =====================================================================
-// MOCK DATA (Thay thế bằng API/Database)
+// MOCK DATA
 // =====================================================================
-const INITIAL_TEAMS: TeamItem[] = [];
+const INITIAL_TEAMS: TeamItem[] = [
+    {
+        id: 'team_01',
+        name: 'Sixseven Trekking Team',
+        isOwnedByYou: true,
+        membersCount: 4,
+        description: 'Specializing in mountain climbing, Northwest trekking routes, and weekend camping. Currently recruiting members for next month Fansipan summit.',
+        createdAt: '2026-08-15',
+    },
+    {
+        id: 'team_02',
+        name: 'Da Lat Hikers Club',
+        isOwnedByYou: false,
+        membersCount: 8,
+        description: 'A community for nature lovers, pine forest trail running, and cloud hunting around the Langbiang and Bidoup areas.',
+        createdAt: '2026-06-20',
+    },
+    {
+        id: 'team_03',
+        name: 'Saigon Night Cycling',
+        isOwnedByYou: false,
+        membersCount: 12,
+        description: 'Night cycling across Ho Chi Minh City routes (Thu Thiem, Pham Van Dong) every Wednesday and Saturday evening.',
+        createdAt: '2026-09-02',
+    },
+    {
+        id: 'team_04',
+        name: 'Ta Nang Expedition',
+        isOwnedByYou: true,
+        membersCount: 6,
+        description: 'Preparing for the 3-day 2-night Ta Nang - Phan Dung trek. Good physical stamina and basic outdoor gear required.',
+        createdAt: '2026-10-10',
+    },
+];
 
 export default function TeamScreen() {
     // -----------------------------------------------------------------
@@ -41,36 +79,81 @@ export default function TeamScreen() {
     const [teams, setTeams] = useState<TeamItem[]>(INITIAL_TEAMS);
     const [isLoading, setIsLoading] = useState<boolean>(false);
 
+    // Search States
+    const [isSearchActive, setIsSearchActive] = useState<boolean>(false);
+    const [searchQuery, setSearchQuery] = useState<string>('');
+
     // Sort States
     const [sortBy, setSortBy] = useState<TeamSortOption>('name');
     const [isMenuVisible, setIsMenuVisible] = useState<boolean>(false);
 
     // -----------------------------------------------------------------
-    // COMPUTED & SORTING LOGIC
+    // COMPUTED & FILTERING / SORTING LOGIC
     // -----------------------------------------------------------------
-    const sortedTeams = useMemo(() => {
+    const filteredAndSortedTeams = useMemo(() => {
         if (!teams || teams.length === 0) return [];
-        const listCopy = [...teams];
+
+        let list = [...teams];
+
+        if (searchQuery.trim()) {
+            const query = searchQuery.trim().toLowerCase();
+            list = list.filter(
+                (item) =>
+                    item.name.toLowerCase().includes(query) ||
+                    (item.description && item.description.toLowerCase().includes(query))
+            );
+        }
 
         switch (sortBy) {
             case 'name':
-                return listCopy.sort((a, b) => a.name.localeCompare(b.name));
+                return list.sort((a, b) => a.name.localeCompare(b.name));
             case 'members':
-                return listCopy.sort((a, b) => b.membersCount - a.membersCount);
+                return list.sort((a, b) => b.membersCount - a.membersCount);
             case 'creation date':
-                return listCopy.sort(
+                return list.sort(
                     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
                 );
             default:
-                return listCopy;
+                return list;
         }
-    }, [teams, sortBy]);
+    }, [teams, sortBy, searchQuery]);
 
-    const isEmpty = sortedTeams.length === 0;
+    const isEmpty = filteredAndSortedTeams.length === 0;
 
     const handleSelectSort = (option: TeamSortOption) => {
         setSortBy(option);
         setIsMenuVisible(false);
+    };
+
+    const handleOpenFindTeamMap = () => {
+        router.push('/FindTeamMapScreen');
+    };
+
+    const handleCreateTeam = () => {
+        router.push('/create-team');
+    };
+
+    const handleCancelSearch = () => {
+        setSearchQuery('');
+        setIsSearchActive(false);
+    };
+
+    const handleNavigateManage = (teamId: string) => {
+        router.push({
+            pathname: '/manage-team',
+            params: { id: teamId },
+        });
+    };
+
+    const handleOpenTeamChat = (team: TeamItem) => {
+        router.push({
+            pathname: '/team-chat',
+            params: {
+                teamId: team.id,
+                teamName: team.name,
+                isOwnedByYou: String(team.isOwnedByYou),
+            },
+        });
     };
 
     return (
@@ -79,21 +162,23 @@ export default function TeamScreen() {
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={styles.scrollContent}
             >
-                {/* --- HEADER BAR --- */}
-                <View style={styles.headerBar}>
-                    <Text style={styles.headerTitle}>TEAM</Text>
-                    <View style={styles.headerRightBtns}>
-                        <TouchableOpacity style={styles.circleHeaderBtn} activeOpacity={0.7}>
-                            <Octicons name="search" size={18} color="#0F172A" />
-                        </TouchableOpacity>
-                    </View>
-                </View>
+                {/* --- SHARED INTERACTIVE SEARCH HEADER --- */}
+                <SearchBarHeader
+                    title="TEAM"
+                    placeholder="Search teams by name, description..."
+                    isSearching={isSearchActive}
+                    searchQuery={searchQuery}
+                    onSearchQueryChange={setSearchQuery}
+                    onStartSearch={() => setIsSearchActive(true)}
+                    onCancelSearch={handleCancelSearch}
+                />
 
                 {/* --- ACTION CARDS --- */}
                 <View style={styles.actionCardsRow}>
                     <TouchableOpacity
                         style={[styles.actionCard, styles.findTeamCard]}
                         activeOpacity={0.85}
+                        onPress={handleOpenFindTeamMap}
                     >
                         <Text style={styles.findTeamText}>Find a team</Text>
                         <View style={styles.cardIconBottomRight}>
@@ -104,6 +189,7 @@ export default function TeamScreen() {
                     <TouchableOpacity
                         style={[styles.actionCard, styles.createTeamCard]}
                         activeOpacity={0.85}
+                        onPress={handleCreateTeam}
                     >
                         <Text style={styles.createTeamText}>Create a new team</Text>
                         <View style={styles.cardIconBottomRight}>
@@ -114,17 +200,29 @@ export default function TeamScreen() {
 
                 <View style={styles.dashedLine} />
 
-                {/* --- FILTER BAR --- */}
-                <View style={styles.filterRow}>
-                    <View style={styles.flex1} />
-                    <TouchableOpacity
-                        style={styles.filterBtn}
-                        activeOpacity={0.7}
-                        onPress={() => setIsMenuVisible(true)}
-                    >
-                        <Octicons name="sort-desc" size={20} color="#0F172A" />
-                    </TouchableOpacity>
-                </View>
+                {/* --- LEGEND & SORT BAR --- */}
+                {!isEmpty && (
+                    <View style={styles.legendAndFilterRow}>
+                        <View style={styles.legendContainer}>
+                            <View style={styles.legendItem}>
+                                <View style={[styles.legendColorBox, { backgroundColor: TEAM_COLORS.OWNED }]} />
+                                <Text style={styles.legendText}>owned by you</Text>
+                            </View>
+                            <View style={styles.legendItem}>
+                                <View style={[styles.legendColorBox, { backgroundColor: TEAM_COLORS.OTHER }]} />
+                                <Text style={styles.legendText}>owned by someone else</Text>
+                            </View>
+                        </View>
+
+                        <TouchableOpacity
+                            style={styles.filterBtn}
+                            activeOpacity={0.7}
+                            onPress={() => setIsMenuVisible(true)}
+                        >
+                            <Octicons name="sort-desc" size={20} color="#0F172A" />
+                        </TouchableOpacity>
+                    </View>
+                )}
 
                 {/* --- MAIN CONTENT AREA --- */}
                 {isLoading ? (
@@ -134,39 +232,82 @@ export default function TeamScreen() {
                 ) : isEmpty ? (
                     <View style={styles.emptyContainer}>
                         <View style={styles.sadIconCircle}>
-                            <Octicons name="smiley" size={48} color="#94A3B8" />
+                            <Octicons
+                                name={searchQuery.trim() ? 'search' : 'smiley'}
+                                size={40}
+                                color="#94A3B8"
+                            />
                         </View>
-                        <Text style={styles.emptyTitle}>You currently have no team!</Text>
+                        <Text style={styles.emptyTitle}>
+                            {searchQuery.trim() ? 'No teams found' : 'You currently have no teams!'}
+                        </Text>
                         <Text style={styles.emptySubtitle}>
-                            Create a new team or explore existing teams from the community
+                            {searchQuery.trim()
+                                ? `No results matching "${searchQuery}". Try different keywords.`
+                                : 'Create a new team or explore existing teams from the community.'}
                         </Text>
                     </View>
                 ) : (
                     <View style={styles.listContainer}>
-                        {sortedTeams.map((team) => (
-                            <ExpandableCard
-                                key={team.id}
-                                id={team.id}
-                                title={team.name}
-                                isOwnedByYou={team.isOwnedByYou}
-                                headerColor={team.color}
-                                defaultExpanded={false}
-                            >
-                                <View style={styles.cardContentWrapper}>
-                                    <Text style={styles.cardDetailText}>
-                                        {team.description || 'Chưa có mô tả đội.'}
-                                    </Text>
-                                    <View style={styles.cardMetaRow}>
-                                        <Text style={styles.cardMetaText}>
-                                            👥 Thành viên: {team.membersCount}
+                        {filteredAndSortedTeams.map((team) => {
+                            const headerColor = team.isOwnedByYou
+                                ? TEAM_COLORS.OWNED
+                                : TEAM_COLORS.OTHER;
+
+                            return (
+                                <ExpandableCard
+                                    key={team.id}
+                                    id={team.id}
+                                    title={team.name}
+                                    isOwnedByYou={team.isOwnedByYou}
+                                    headerColor={headerColor}
+                                    defaultExpanded={false}
+                                    onHeaderPress={() => handleOpenTeamChat(team)}
+                                >
+                                    <View style={styles.cardContentWrapper}>
+                                        <Text style={styles.cardDetailText}>
+                                            {team.description || 'No description provided.'}
                                         </Text>
-                                        <Text style={styles.cardMetaText}>
-                                            🕒 Tạo lúc: {team.createdAt}
-                                        </Text>
+                                        <View style={styles.cardMetaRow}>
+                                            <Text style={styles.cardMetaText}>
+                                                👥 Members: {team.membersCount}
+                                            </Text>
+                                            <Text style={styles.cardMetaText}>
+                                                🕒 Created: {team.createdAt}
+                                            </Text>
+                                        </View>
+
+                                        {/* Action buttons row inside card */}
+                                        <View style={styles.cardActionsRow}>
+                                            <TouchableOpacity
+                                                style={styles.chatActionBtn}
+                                                activeOpacity={0.8}
+                                                onPress={() => handleOpenTeamChat(team)}
+                                            >
+                                                <Octicons name="comment-discussion" size={14} color="#0F172A" />
+                                                <Text style={styles.chatActionBtnText}>Group Chat</Text>
+                                            </TouchableOpacity>
+
+                                            {team.isOwnedByYou ? (
+                                                <TouchableOpacity
+                                                    style={styles.manageBtn}
+                                                    activeOpacity={0.8}
+                                                    onPress={() => handleNavigateManage(team.id)}
+                                                >
+                                                    <Text style={styles.manageBtnText}>Manage Team</Text>
+                                                    <Octicons name="arrow-right" size={14} color="#FFFFFF" />
+                                                </TouchableOpacity>
+                                            ) : (
+                                                <View style={styles.memberStatusBadge}>
+                                                    <Octicons name="check-circle" size={13} color="#059669" />
+                                                    <Text style={styles.memberStatusText}>Joined as Member</Text>
+                                                </View>
+                                            )}
+                                        </View>
                                     </View>
-                                </View>
-                            </ExpandableCard>
-                        ))}
+                                </ExpandableCard>
+                            );
+                        })}
                     </View>
                 )}
             </ScrollView>
@@ -250,39 +391,10 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: '#F8FAFC',
     },
-    flex1: {
-        flex: 1,
-    },
     scrollContent: {
         paddingHorizontal: 24,
         paddingTop: 16,
         paddingBottom: 110,
-    },
-    headerBar: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        marginBottom: 24,
-    },
-    headerTitle: {
-        fontFamily: 'GoogleSans-Bold',
-        fontSize: 22,
-        color: '#0F172A',
-        includeFontPadding: false,
-        textAlignVertical: 'center',
-    },
-    headerRightBtns: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 12,
-    },
-    circleHeaderBtn: {
-        width: 42,
-        height: 42,
-        borderRadius: 21,
-        backgroundColor: '#FFFFFF',
-        justifyContent: 'center',
-        alignItems: 'center',
     },
     actionCardsRow: {
         flexDirection: 'row',
@@ -308,12 +420,16 @@ const styles = StyleSheet.create({
         fontSize: 16,
         color: '#FFFFFF',
         width: '80%',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     createTeamText: {
         fontFamily: 'GoogleSans-Bold',
         fontSize: 16,
         color: '#0F172A',
         width: '80%',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     cardIconBottomRight: {
         position: 'absolute',
@@ -327,11 +443,31 @@ const styles = StyleSheet.create({
         width: '100%',
         marginBottom: 16,
     },
-    filterRow: {
+    legendAndFilterRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'flex-end',
+        justifyContent: 'space-between',
         marginBottom: 16,
+    },
+    legendContainer: {
+        gap: 4,
+    },
+    legendItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    legendColorBox: {
+        width: 32,
+        height: 10,
+        borderRadius: 4,
+    },
+    legendText: {
+        fontFamily: 'GoogleSans-Regular',
+        fontSize: 12,
+        color: '#64748B',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     filterBtn: {
         width: 42,
@@ -352,6 +488,7 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: '#334155',
         lineHeight: 20,
+        includeFontPadding: false,
     },
     cardMetaRow: {
         flexDirection: 'row',
@@ -363,6 +500,66 @@ const styles = StyleSheet.create({
         fontFamily: 'GoogleSans-Regular',
         fontSize: 12,
         color: '#64748B',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
+    },
+    cardActionsRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        marginTop: 8,
+    },
+    chatActionBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        backgroundColor: '#F1F5F9',
+        borderWidth: 1,
+        borderColor: '#E2E8F0',
+        paddingVertical: 10,
+        paddingHorizontal: 14,
+        borderRadius: 10,
+    },
+    chatActionBtnText: {
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 13,
+        color: '#0F172A',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
+    },
+    manageBtn: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#1E293B',
+        paddingVertical: 10,
+        borderRadius: 10,
+        gap: 8,
+    },
+    manageBtnText: {
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 13,
+        color: '#FFFFFF',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
+    },
+    memberStatusBadge: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+        backgroundColor: '#ECFDF5',
+        paddingVertical: 10,
+        borderRadius: 10,
+    },
+    memberStatusText: {
+        fontFamily: 'GoogleSans-Medium',
+        fontSize: 12,
+        color: '#059669',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     loadingContainer: {
         paddingVertical: 60,
@@ -390,6 +587,8 @@ const styles = StyleSheet.create({
         color: '#334155',
         textAlign: 'center',
         marginBottom: 8,
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     emptySubtitle: {
         fontFamily: 'GoogleSans-Regular',
@@ -397,13 +596,15 @@ const styles = StyleSheet.create({
         color: '#94A3B8',
         textAlign: 'center',
         lineHeight: 20,
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     modalOverlay: {
         flex: 1,
         backgroundColor: 'rgba(15, 23, 42, 0.4)',
         justifyContent: 'flex-start',
         alignItems: 'flex-end',
-        paddingTop: 200,
+        paddingTop: 245,
         paddingRight: 24,
     },
     dropdownMenuContainer: {
@@ -411,11 +612,6 @@ const styles = StyleSheet.create({
         backgroundColor: '#FFFFFF',
         borderRadius: 16,
         paddingVertical: 4,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.15,
-        shadowRadius: 10,
-        elevation: 6,
     },
     menuOptionBtn: {
         paddingHorizontal: 20,
@@ -441,9 +637,13 @@ const styles = StyleSheet.create({
         fontFamily: 'GoogleSans-Medium',
         fontSize: 14,
         color: '#0F172A',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     menuOptionTextSelected: {
         fontFamily: 'GoogleSans-Bold',
         color: '#0284C7',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
 });

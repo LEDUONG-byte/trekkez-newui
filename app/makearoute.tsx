@@ -9,12 +9,10 @@ import {
     Modal,
     TouchableWithoutFeedback,
     ActivityIndicator,
-    Alert,
-    ScrollView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Octicons } from '@expo/vector-icons';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter } from 'expo-router';
 import Mapbox from '@rnmapbox/maps';
 import * as Location from 'expo-location';
 
@@ -23,52 +21,38 @@ if (MAPBOX_KEY) {
     Mapbox.setAccessToken(MAPBOX_KEY);
 }
 
-export interface RouteWaypoint {
+type ScreenState = 'INITIAL' | 'PIN_SELECTED' | 'WAYPOINT_PANEL' | 'ROUTE_ACTIVE';
+
+interface WaypointItem {
     id: string;
+    coordinate: [number, number];
     label: string;
-    coordinate: [number, number]; // [lng, lat]
-    name: string;
 }
 
-export interface RouteManageData {
-    id: string;
-    name: string;
-    description: string;
-    waypoints: RouteWaypoint[];
-}
-
-const INITIAL_ROUTE_MANAGE: RouteManageData = {
-    id: 'route_01',
-    name: 'Tuyến đường Đạp xe / Đi bộ Phạm Văn Đồng',
-    description: 'Chạy dọc trục đường Phạm Văn Đồng qua các điểm nghỉ ngơi.',
-    waypoints: [
-        { id: 'wp_start', label: 'A', coordinate: [106.6860, 10.8250], name: 'Điểm khởi hành A' },
-        { id: 'wp_1', label: '1', coordinate: [106.6870, 10.8238], name: 'Trạm dừng 1' },
-        { id: 'wp_2', label: '2', coordinate: [106.6880, 10.8225], name: 'Trạm dừng 2' },
-        { id: 'wp_end', label: 'B', coordinate: [106.6898, 10.8200], name: 'Điểm kết thúc B' },
-    ],
-};
-
-export default function ManageRouteScreen() {
+export default function MakeARouteScreen() {
     const router = useRouter();
-    const params = useLocalSearchParams<{ id?: string }>();
-    const insets = useSafeAreaInsets();
     const cameraRef = useRef<any>(null);
+    const insets = useSafeAreaInsets();
 
-    const [route, setRoute] = useState<RouteManageData>(INITIAL_ROUTE_MANAGE);
+    const [screenState, setScreenState] = useState<ScreenState>('INITIAL');
+    const [startLocationText, setStartLocationText] = useState('Current location');
+    const [destinationText, setDestinationText] = useState('');
+    const [waypointMode, setWaypointMode] = useState<'along' | 'end'>('along');
     const [isCalculatingRoute, setIsCalculatingRoute] = useState(false);
-    const [routeGeometry, setRouteGeometry] = useState<[number, number][]>([]);
 
+    const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
+
+    const [userCoords, setUserCoords] = useState<[number, number] | null>(null);
     const [selectedPin, setSelectedPin] = useState<[number, number] | null>(null);
-    const [activeWaypoint, setActiveWaypoint] = useState<RouteWaypoint | null>(null);
 
     const [currentZoom, setCurrentZoom] = useState<number>(16);
     const [centerLat, setCenterLat] = useState<number>(10.8225);
 
-    // Modals
-    const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
+    const [startPoint, setStartPoint] = useState<WaypointItem | null>(null);
+    const [destinationPoint, setDestinationPoint] = useState<WaypointItem | null>(null);
+    const [waypointsList, setWaypointsList] = useState<WaypointItem[]>([]);
 
-    // Thống kê lộ trình
+    const [routeGeometry, setRouteGeometry] = useState<[number, number][]>([]);
     const [routeStats, setRouteStats] = useState({
         distance: 0,
         duration: 0,
@@ -77,7 +61,7 @@ export default function ManageRouteScreen() {
     });
 
     // -----------------------------------------------------------------
-    // TÍNH TOÁN THANH TỶ LỆ CHỮ L THEO ZOOM & LATITUDE
+    // TÍNH TOÁN THANH TỶ LỆ CHỮ L THEO MỨC ZOOM VÀ VĨ ĐỘ
     // -----------------------------------------------------------------
     const scaleBarData = useMemo(() => {
         const metersPerDp =
@@ -118,17 +102,56 @@ export default function ManageRouteScreen() {
     const handleCameraChanged = (state: any) => {
         const zoom = state?.properties?.zoom ?? state?.properties?.zoomLevel;
         const center = state?.properties?.center;
-        if (typeof zoom === 'number') setCurrentZoom(zoom);
-        if (Array.isArray(center) && center.length === 2) setCenterLat(center[1]);
+        if (typeof zoom === 'number') {
+            setCurrentZoom(zoom);
+        }
+        if (Array.isArray(center) && center.length === 2) {
+            setCenterLat(center[1]);
+        }
     };
 
-    // 1. Tính toán hướng đi qua Mapbox Directions API
-    const fetchDirections = async (waypoints: RouteWaypoint[]) => {
-        if (waypoints.length < 2) return;
-        setIsCalculatingRoute(true);
+    useEffect(() => {
+        (async () => {
+            let { status } = await Location.requestForegroundPermissionsAsync();
+            if (status !== 'granted') return;
 
+            try {
+                let location = await Location.getCurrentPositionAsync({
+                    accuracy: Location.Accuracy.High,
+                });
+                const coords: [number, number] = [location.coords.longitude, location.coords.latitude];
+                setUserCoords(coords);
+                setCenterLat(location.coords.latitude);
+
+                setStartPoint({
+                    id: 'point-a',
+                    coordinate: coords,
+                    label: 'A',
+                });
+
+                if (cameraRef.current) {
+                    cameraRef.current.setCamera({
+                        centerCoordinate: coords,
+                        zoomLevel: 16,
+                        animationDuration: 1000,
+                    });
+                }
+            } catch (error) {
+                console.log('GPS Error:', error);
+            }
+        })();
+    }, []);
+
+    const generateRoute = async (
+        start: [number, number],
+        end: [number, number],
+        waypoints: WaypointItem[] = []
+    ) => {
+        setIsCalculatingRoute(true);
         try {
-            const coordinatesString = waypoints.map((w) => `${w.coordinate[0]},${w.coordinate[1]}`).join(';');
+            const allPoints = [start, ...waypoints.map((w) => w.coordinate), end];
+            const coordinatesString = allPoints.map((pt) => `${pt[0]},${pt[1]}`).join(';');
+
             const response = await fetch(
                 `https://api.mapbox.com/directions/v5/mapbox/walking/${coordinatesString}?geometries=geojson&overview=full&access_token=${MAPBOX_KEY}`
             );
@@ -144,93 +167,152 @@ export default function ManageRouteScreen() {
                     elevLoss: 0,
                 });
             } else {
-                setRouteGeometry(waypoints.map((w) => w.coordinate));
+                setRouteGeometry([start, ...waypoints.map((w) => w.coordinate), end]);
             }
+
+            if (cameraRef.current) {
+                const midLng = (start[0] + end[0]) / 2;
+                const midLat = (start[1] + end[1]) / 2;
+                cameraRef.current.setCamera({
+                    centerCoordinate: [midLng, midLat],
+                    zoomLevel: 15,
+                    animationDuration: 900,
+                });
+            }
+
+            setScreenState('ROUTE_ACTIVE');
         } catch (error) {
-            console.log('Directions error:', error);
-            setRouteGeometry(waypoints.map((w) => w.coordinate));
+            console.log('Route calculation error:', error);
+            setRouteGeometry([start, ...waypoints.map((w) => w.coordinate), end]);
+            setScreenState('ROUTE_ACTIVE');
         } finally {
             setIsCalculatingRoute(false);
+            setSelectedPin(null);
         }
     };
 
-    useEffect(() => {
-        fetchDirections(route.waypoints);
-    }, []);
-
-    // 2. Chạm vào bản đồ để thêm trạm dừng mới
     const handleMapPress = (e: any) => {
         const coords = e?.geometry?.coordinates;
-        if (!coords) return;
+        const clickedLngLat: [number, number] = coords || [106.6882, 10.8225];
 
-        const clickedLngLat: [number, number] = [coords[0], coords[1]];
-        setSelectedPin(clickedLngLat);
-        setActiveWaypoint(null);
-    };
-
-    // Thêm trạm dừng vào cuối trước điểm B
-    const handleAddWaypointToRoute = () => {
-        if (!selectedPin) return;
-
-        const newPoint: RouteWaypoint = {
-            id: `wp_${Date.now()}`,
-            label: `${route.waypoints.length - 1}`,
-            coordinate: selectedPin,
-            name: `Waypoint ${route.waypoints.length - 1}`,
-        };
-
-        const updated = [...route.waypoints];
-        updated.splice(updated.length - 1, 0, newPoint);
-
-        const reIndexed = updated.map((w, index) => {
-            if (index === 0) return { ...w, label: 'A' };
-            if (index === updated.length - 1) return { ...w, label: 'B' };
-            return { ...w, label: `${index}` };
-        });
-
-        setRoute((prev) => ({ ...prev, waypoints: reIndexed }));
-        setSelectedPin(null);
-        fetchDirections(reIndexed);
-    };
-
-    // Xoá trạm dừng
-    const handleRemoveWaypoint = (id: string) => {
-        if (route.waypoints.length <= 2) {
-            Alert.alert('Notice', 'Route requires at least 2 points (Start and Destination).');
+        if (screenState === 'ROUTE_ACTIVE') {
+            setSelectedPin(clickedLngLat);
+            setScreenState('WAYPOINT_PANEL');
             return;
         }
 
-        const filtered = route.waypoints.filter((w) => w.id !== id);
-        const reIndexed = filtered.map((w, index) => {
-            if (index === 0) return { ...w, label: 'A' };
-            if (index === filtered.length - 1) return { ...w, label: 'B' };
-            return { ...w, label: `${index}` };
-        });
+        setSelectedPin(clickedLngLat);
+        setScreenState('PIN_SELECTED');
+    };
 
-        setRoute((prev) => ({ ...prev, waypoints: reIndexed }));
-        setActiveWaypoint(null);
-        fetchDirections(reIndexed);
+    const handleSetStartPoint = () => {
+        if (!selectedPin) return;
+        const newStart: WaypointItem = {
+            id: 'point-a',
+            coordinate: selectedPin,
+            label: 'A',
+        };
+        setStartPoint(newStart);
+        setStartLocationText('Selected location');
+        setSelectedPin(null);
+
+        if (destinationPoint) {
+            generateRoute(newStart.coordinate, destinationPoint.coordinate, waypointsList);
+        } else {
+            setScreenState('INITIAL');
+        }
+    };
+
+    const handleSetDestination = () => {
+        if (!selectedPin) return;
+
+        const effectiveStart = startPoint?.coordinate || userCoords || [106.6882, 10.8225];
+        if (!startPoint) {
+            setStartPoint({
+                id: 'point-a',
+                coordinate: effectiveStart,
+                label: 'A',
+            });
+        }
+
+        const newEnd: WaypointItem = {
+            id: 'point-b',
+            coordinate: selectedPin,
+            label: 'B',
+        };
+        setDestinationPoint(newEnd);
+        setDestinationText('Selected destination');
+
+        generateRoute(effectiveStart, newEnd.coordinate, waypointsList);
+    };
+
+    const handleAddWaypoint = () => {
+        if (!selectedPin || !startPoint || !destinationPoint) return;
+
+        if (waypointMode === 'end') {
+            // "Add to end": Chuyển điểm B cũ thành waypoint và gán pin mới làm điểm B
+            const formerEndAsWaypoint: WaypointItem = {
+                id: `wp-${Date.now()}-former-b`,
+                coordinate: destinationPoint.coordinate,
+                label: `${waypointsList.length + 1}`,
+            };
+
+            const newEnd: WaypointItem = {
+                id: 'point-b',
+                coordinate: selectedPin,
+                label: 'B',
+            };
+
+            const updatedWaypoints = [...waypointsList, formerEndAsWaypoint];
+            setWaypointsList(updatedWaypoints);
+            setDestinationPoint(newEnd);
+            setDestinationText('Selected destination');
+
+            generateRoute(startPoint.coordinate, newEnd.coordinate, updatedWaypoints);
+        } else {
+            // "Add along the way": Chèn waypoint mới vào giữa chặng
+            const newWaypoint: WaypointItem = {
+                id: `wp-${Date.now()}`,
+                coordinate: selectedPin,
+                label: `${waypointsList.length + 1}`,
+            };
+
+            const updatedWaypoints = [...waypointsList, newWaypoint];
+            setWaypointsList(updatedWaypoints);
+
+            generateRoute(startPoint.coordinate, destinationPoint.coordinate, updatedWaypoints);
+        }
     };
 
     const handleResetRoute = () => {
-        Alert.alert('Reset Route', 'Are you sure you want to reset this route?', [
-            { text: 'Cancel', style: 'cancel' },
-            {
-                text: 'Reset',
-                style: 'destructive',
-                onPress: () => {
-                    const defaultWp = [
-                        route.waypoints[0],
-                        route.waypoints[route.waypoints.length - 1],
-                    ];
-                    setRoute((prev) => ({ ...prev, waypoints: defaultWp }));
-                    setSelectedPin(null);
-                    setActiveWaypoint(null);
-                    fetchDirections(defaultWp);
-                    setIsMoreMenuOpen(false);
-                },
-            },
-        ]);
+        setStartLocationText('Current location');
+        setDestinationText('');
+        setDestinationPoint(null);
+        setWaypointsList([]);
+        setRouteGeometry([]);
+        setSelectedPin(null);
+        setScreenState('INITIAL');
+        setIsMoreMenuOpen(false);
+
+        if (userCoords) {
+            setStartPoint({
+                id: 'point-a',
+                coordinate: userCoords,
+                label: 'A',
+            });
+            if (cameraRef.current) {
+                cameraRef.current.setCamera({
+                    centerCoordinate: userCoords,
+                    zoomLevel: 16,
+                    animationDuration: 800,
+                });
+            }
+        }
+    };
+
+    const handleSave = () => {
+        console.log('Saved route successfully!');
+        router.back();
     };
 
     const handleCenterOnUser = async () => {
@@ -239,6 +321,7 @@ export default function ManageRouteScreen() {
                 accuracy: Location.Accuracy.High,
             });
             const coords: [number, number] = [location.coords.longitude, location.coords.latitude];
+            setUserCoords(coords);
             setCenterLat(location.coords.latitude);
             if (cameraRef.current) {
                 cameraRef.current.setCamera({
@@ -267,13 +350,12 @@ export default function ManageRouteScreen() {
             >
                 <Mapbox.Camera
                     ref={cameraRef}
-                    zoomLevel={15}
-                    centerCoordinate={route.waypoints[0]?.coordinate || [106.6882, 10.8225]}
+                    zoomLevel={16}
+                    centerCoordinate={userCoords || [106.6882, 10.8225]}
                 />
 
                 <Mapbox.UserLocation visible={true} androidRenderMode="compass" />
 
-                {/* Ghim tạm thời khi chạm thêm điểm */}
                 {selectedPin && (
                     <Mapbox.PointAnnotation id="selected-pin" coordinate={selectedPin}>
                         <View style={styles.redPinMarker}>
@@ -282,10 +364,33 @@ export default function ManageRouteScreen() {
                     </Mapbox.PointAnnotation>
                 )}
 
-                {/* Vẽ tuyến đường Polyline */}
+                {startPoint && (
+                    <Mapbox.PointAnnotation id="point-a-marker" coordinate={startPoint.coordinate}>
+                        <View style={[styles.waypointBadge, { backgroundColor: '#bee8ff' }]}>
+                            <Text style={[styles.waypointBadgeText, { color: '#0F172A' }]}>A</Text>
+                        </View>
+                    </Mapbox.PointAnnotation>
+                )}
+
+                {destinationPoint && (
+                    <Mapbox.PointAnnotation id="point-b-marker" coordinate={destinationPoint.coordinate}>
+                        <View style={[styles.waypointBadge, { backgroundColor: '#f6eab2' }]}>
+                            <Text style={[styles.waypointBadgeText, { color: '#0F172A' }]}>B</Text>
+                        </View>
+                    </Mapbox.PointAnnotation>
+                )}
+
+                {waypointsList.map((wp) => (
+                    <Mapbox.PointAnnotation key={wp.id} id={wp.id} coordinate={wp.coordinate}>
+                        <View style={[styles.waypointBadge, { backgroundColor: '#0F172A' }]}>
+                            <Text style={styles.waypointBadgeText}>{wp.label}</Text>
+                        </View>
+                    </Mapbox.PointAnnotation>
+                ))}
+
                 {routeGeometry.length > 0 && (
                     <Mapbox.ShapeSource
-                        id="manageRouteSource"
+                        id="routeSource"
                         shape={{
                             type: 'Feature',
                             geometry: {
@@ -296,7 +401,7 @@ export default function ManageRouteScreen() {
                         }}
                     >
                         <Mapbox.LineLayer
-                            id="manageRouteLine"
+                            id="routeLine"
                             style={{
                                 lineColor: '#2563EB',
                                 lineWidth: 6,
@@ -306,45 +411,18 @@ export default function ManageRouteScreen() {
                         />
                     </Mapbox.ShapeSource>
                 )}
-
-                {/* Markers các Waypoints */}
-                {route.waypoints.map((wp) => (
-                    <Mapbox.PointAnnotation
-                        key={wp.id}
-                        id={wp.id}
-                        coordinate={wp.coordinate}
-                        onSelected={() => setActiveWaypoint(wp)}
-                    >
-                        <View
-                            style={[
-                                styles.waypointBadge,
-                                wp.label === 'A' && { backgroundColor: '#bee8ff' },
-                                wp.label === 'B' && { backgroundColor: '#f6eab2' },
-                            ]}
-                        >
-                            <Text
-                                style={[
-                                    styles.waypointBadgeText,
-                                    (wp.label === 'A' || wp.label === 'B') && { color: '#0F172A' },
-                                ]}
-                            >
-                                {wp.label}
-                            </Text>
-                        </View>
-                    </Mapbox.PointAnnotation>
-                ))}
             </Mapbox.MapView>
 
             {isCalculatingRoute && (
                 <View style={styles.calculatingOverlay}>
-                    <ActivityIndicator size="small" color="#FFFFFF" />
-                    <Text style={styles.calculatingText}>Updating route...</Text>
+                    <ActivityIndicator size="large" color="#2563EB" />
+                    <Text style={styles.calculatingText}>Calculating route...</Text>
                 </View>
             )}
 
             {/* OVERLAY UI */}
             <View style={styles.overlayContainer} pointerEvents="box-none">
-                {/* 1. TOP HEADER: Back button + Thanh tỷ lệ chữ L ở góc trái */}
+                {/* 1. TOP HEADER */}
                 <View
                     style={[
                         styles.topRow,
@@ -374,16 +452,31 @@ export default function ManageRouteScreen() {
                         </View>
                     </View>
 
-                    <TouchableOpacity
-                        style={styles.saveRouteBtn}
-                        activeOpacity={0.85}
-                        onPress={() => router.back()}
-                    >
-                        <Text style={styles.saveRouteBtnText}>Save</Text>
-                    </TouchableOpacity>
+                    <View style={styles.topRightRow} pointerEvents="box-none">
+                        <TouchableOpacity
+                            style={styles.circleBtn}
+                            activeOpacity={0.8}
+                            onPress={() => {
+                                // Logic mở modal / trang tìm kiếm địa điểm
+                            }}
+                        >
+                            <Octicons name="search" size={20} color="#0F172A" />
+                        </TouchableOpacity>
+
+                        {/* NÚT SAVE: Bấm trực tiếp để lưu */}
+                        {screenState === 'ROUTE_ACTIVE' && (
+                            <TouchableOpacity
+                                style={styles.saveRouteBtn}
+                                activeOpacity={0.85}
+                                onPress={handleSave}
+                            >
+                                <Text style={styles.saveRouteBtnText}>Save</Text>
+                            </TouchableOpacity>
+                        )}
+                    </View>
                 </View>
 
-                {/* 2. BOTTOM SECTION: Nút More (...) và GPS */}
+                {/* 2. BOTTOM SECTION */}
                 <View
                     style={[
                         styles.bottomSection,
@@ -409,70 +502,156 @@ export default function ManageRouteScreen() {
                         </TouchableOpacity>
                     </View>
 
-                    {/* Card nổi quản lý route */}
+                    {/* Card nổi màu nền #f5f4f7 */}
                     <View
                         style={styles.floatingCardContainer}
                         pointerEvents="auto"
                         onStartShouldSetResponder={() => true}
                     >
-                        {selectedPin ? (
-                            <View style={styles.pinSelectedContent}>
-                                <View style={styles.pinHeaderRow}>
-                                    <View style={styles.pinInfoCol}>
-                                        <Text style={styles.pinInfoTitle}>Add Waypoint</Text>
-                                        <Text style={styles.pinInfoSubtitle}>
-                                            Insert this stop into your route
-                                        </Text>
-                                    </View>
-                                    <TouchableOpacity
-                                        style={styles.closeCardBtn}
-                                        onPress={() => setSelectedPin(null)}
-                                    >
-                                        <Octicons name="x" size={18} color="#0F172A" />
-                                    </TouchableOpacity>
-                                </View>
+                        {screenState === 'INITIAL' && (
+                            <View style={styles.cardContentBox}>
+                                <Text style={styles.sheetTitle}>
+                                    Tap the map or search a place to start planning
+                                </Text>
 
-                                <TouchableOpacity
-                                    style={styles.addRouteConfirmBtn}
-                                    activeOpacity={0.85}
-                                    onPress={handleAddWaypointToRoute}
-                                >
-                                    <Octicons name="plus" size={16} color="#FFFFFF" />
-                                    <Text style={styles.addRouteConfirmText}>Add to route</Text>
-                                </TouchableOpacity>
+                                <View style={styles.inputsWrapper}>
+                                    <View style={styles.verticalConnector} />
+
+                                    <View style={styles.inputRowContainer}>
+                                        <View style={[styles.badgeCircle, { backgroundColor: '#bee8ff' }]}>
+                                            <Text style={[styles.badgeText, { color: '#0F172A' }]}>A</Text>
+                                        </View>
+                                        <TextInput
+                                            style={styles.inputField}
+                                            value={startLocationText}
+                                            onChangeText={setStartLocationText}
+                                            placeholder="Enter starting point"
+                                            placeholderTextColor="#94A3B8"
+                                        />
+                                        {startLocationText.length > 0 && (
+                                            <TouchableOpacity
+                                                style={styles.clearBtn}
+                                                onPress={() => setStartLocationText('')}
+                                            >
+                                                <Octicons name="x" size={16} color="#64748B" />
+                                            </TouchableOpacity>
+                                        )}
+                                    </View>
+
+                                    <View style={styles.inputRowContainer}>
+                                        <View style={[styles.badgeCircle, { backgroundColor: '#f6eab2' }]}>
+                                            <Text style={[styles.badgeText, { color: '#0F172A' }]}>B</Text>
+                                        </View>
+                                        <TextInput
+                                            style={[styles.inputField, !destinationText && styles.inputFieldPlaceholder]}
+                                            value={destinationText}
+                                            placeholder="Tap map to choose destination"
+                                            placeholderTextColor="#94A3B8"
+                                            editable={false}
+                                        />
+                                    </View>
+                                </View>
                             </View>
-                        ) : activeWaypoint ? (
+                        )}
+
+                        {screenState === 'PIN_SELECTED' && (
                             <View style={styles.pinSelectedContent}>
                                 <View style={styles.pinHeaderRow}>
                                     <View style={styles.pinInfoCol}>
-                                        <Text style={styles.pinInfoTitle}>Waypoint: {activeWaypoint.name}</Text>
+                                        <Text style={styles.pinInfoTitle}>Selected Location</Text>
                                         <Text style={styles.pinInfoSubtitle}>
-                                            Point {activeWaypoint.label} on route
+                                            Tap button below to set as start or destination
                                         </Text>
                                     </View>
                                     <TouchableOpacity
                                         style={styles.closeCardBtn}
-                                        onPress={() => setActiveWaypoint(null)}
-                                    >
-                                        <Octicons name="x" size={18} color="#0F172A" />
-                                    </TouchableOpacity>
-                                </View>
-
-                                {activeWaypoint.label !== 'A' && activeWaypoint.label !== 'B' && (
-                                    <TouchableOpacity
-                                        style={styles.removeWaypointBtn}
-                                        activeOpacity={0.85}
                                         onPress={() => {
-                                            handleRemoveWaypoint(activeWaypoint.id);
-                                            setActiveWaypoint(null);
+                                            setSelectedPin(null);
+                                            setScreenState(routeGeometry.length > 0 ? 'ROUTE_ACTIVE' : 'INITIAL');
                                         }}
                                     >
-                                        <Octicons name="trash" size={16} color="#FFFFFF" />
-                                        <Text style={styles.removeWaypointText}>Remove Stop</Text>
+                                        <Octicons name="x" size={18} color="#0F172A" />
                                     </TouchableOpacity>
-                                )}
+                                </View>
+
+                                <View style={styles.pinActionButtonsRow}>
+                                    <TouchableOpacity
+                                        style={styles.pinPrimaryBtn}
+                                        activeOpacity={0.8}
+                                        onPress={handleSetStartPoint}
+                                    >
+                                        <View style={[styles.badgeCircleSmall, { backgroundColor: '#bee8ff' }]}>
+                                            <Text style={[styles.badgeTextSmall, { color: '#0F172A' }]}>A</Text>
+                                        </View>
+                                        <Text style={styles.pinBtnText}>Start here</Text>
+                                    </TouchableOpacity>
+
+                                    <TouchableOpacity
+                                        style={styles.pinPrimaryBtn}
+                                        activeOpacity={0.8}
+                                        onPress={handleSetDestination}
+                                    >
+                                        <View style={[styles.badgeCircleSmall, { backgroundColor: '#f6eab2' }]}>
+                                            <Text style={[styles.badgeTextSmall, { color: '#0F172A' }]}>B</Text>
+                                        </View>
+                                        <Text style={styles.pinBtnText}>Route to here</Text>
+                                    </TouchableOpacity>
+                                </View>
                             </View>
-                        ) : (
+                        )}
+
+                        {screenState === 'WAYPOINT_PANEL' && (
+                            <View style={styles.waypointPanelContent}>
+                                <View style={styles.waypointTopRow}>
+                                    <View>
+                                        <Text style={styles.waypointTitle}>Waypoint</Text>
+                                        <Text style={styles.waypointDistance}>Add intermediate stop</Text>
+                                    </View>
+                                    <TouchableOpacity
+                                        style={styles.closeCardBtn}
+                                        onPress={() => {
+                                            setSelectedPin(null);
+                                            setScreenState('ROUTE_ACTIVE');
+                                        }}
+                                    >
+                                        <Octicons name="x" size={18} color="#0F172A" />
+                                    </TouchableOpacity>
+                                </View>
+
+                                {/* Radio Options: Add to end vs Add along the way */}
+                                <View style={styles.radioOptionsRow}>
+                                    <TouchableOpacity
+                                        style={styles.radioItem}
+                                        onPress={() => setWaypointMode('end')}
+                                    >
+                                        <View style={[styles.radioCircle, waypointMode === 'end' && styles.radioCircleSelected]} />
+                                        <Text style={styles.radioLabel}>Add to end</Text>
+                                    </TouchableOpacity>
+
+                                    <TouchableOpacity
+                                        style={styles.radioItem}
+                                        onPress={() => setWaypointMode('along')}
+                                    >
+                                        <View style={[styles.radioCircle, waypointMode === 'along' && styles.radioCircleSelected]} />
+                                        <Text style={styles.radioLabel}>Add along the way</Text>
+                                    </TouchableOpacity>
+                                </View>
+
+                                {/* Nút Add to route (Đã xóa hoàn toàn Off-grid) */}
+                                <View style={styles.waypointFooterRow}>
+                                    <TouchableOpacity
+                                        style={styles.addRouteConfirmBtn}
+                                        activeOpacity={0.85}
+                                        onPress={handleAddWaypoint}
+                                    >
+                                        <Octicons name="plus" size={16} color="#FFFFFF" />
+                                        <Text style={styles.addRouteConfirmText}>Add to route</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </View>
+                        )}
+
+                        {screenState === 'ROUTE_ACTIVE' && (
                             <View style={styles.statsContainer}>
                                 <View style={styles.statCol}>
                                     <Text style={styles.statValue}>
@@ -496,9 +675,16 @@ export default function ManageRouteScreen() {
 
                                 <View style={styles.statCol}>
                                     <Text style={styles.statValue}>
-                                        {route.waypoints.length}
+                                        0 <Text style={styles.statUnit}>m</Text>
                                     </Text>
-                                    <Text style={styles.statLabel}>Waypoints</Text>
+                                    <Text style={styles.statLabel}>Elev. gain</Text>
+                                </View>
+
+                                <View style={styles.statCol}>
+                                    <Text style={styles.statValue}>
+                                        0 <Text style={styles.statUnit}>m</Text>
+                                    </Text>
+                                    <Text style={styles.statLabel}>Elev. loss</Text>
                                 </View>
                             </View>
                         )}
@@ -506,16 +692,18 @@ export default function ManageRouteScreen() {
                 </View>
             </View>
 
-            {/* Modal More Options (...) */}
-            <Modal
-                visible={isMoreMenuOpen}
-                transparent
-                animationType="fade"
-                onRequestClose={() => setIsMoreMenuOpen(false)}
-            >
+            {/* Menu mở rộng (dấu 3 chấm) */}
+            <Modal visible={isMoreMenuOpen} transparent animationType="fade" onRequestClose={() => setIsMoreMenuOpen(false)}>
                 <TouchableWithoutFeedback onPress={() => setIsMoreMenuOpen(false)}>
                     <View style={styles.modalOverlayBottomLeft}>
                         <View style={styles.popoverMenu}>
+                            <TouchableOpacity
+                                style={styles.popoverOptionRow}
+                                onPress={() => setIsMoreMenuOpen(false)}
+                            >
+                                <Octicons name="reply" size={18} color="#0F172A" />
+                                <Text style={styles.popoverOptionTextBold}>Redo</Text>
+                            </TouchableOpacity>
                             <TouchableOpacity
                                 style={styles.popoverOptionRow}
                                 onPress={handleResetRoute}
@@ -574,12 +762,18 @@ const styles = StyleSheet.create({
     topLeftCol: {
         alignItems: 'flex-start',
     },
+    topRightRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+    },
     saveRouteBtn: {
+        flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
         backgroundColor: '#207bfb',
-        paddingHorizontal: 22,
-        paddingVertical: 12,
+        paddingHorizontal: 20,
+        paddingVertical: 11,
         borderRadius: 24,
     },
     saveRouteBtnText: {
@@ -655,6 +849,71 @@ const styles = StyleSheet.create({
         paddingTop: 18,
         paddingBottom: 20,
     },
+    cardContentBox: {
+        width: '100%',
+    },
+    sheetTitle: {
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 16,
+        color: '#0F172A',
+        marginBottom: 16,
+        includeFontPadding: false,
+        textAlignVertical: 'center',
+    },
+    inputsWrapper: {
+        position: 'relative',
+        gap: 12,
+        width: '100%',
+    },
+    verticalConnector: {
+        position: 'absolute',
+        top: 26,
+        left: 21,
+        width: 2,
+        height: 38,
+        backgroundColor: '#CBD5E1',
+        zIndex: 1,
+    },
+    inputRowContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#FFFFFF',
+        borderRadius: 9999,
+        paddingHorizontal: 12,
+        height: 52,
+        zIndex: 2,
+        width: '100%',
+    },
+    badgeCircle: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 10,
+    },
+    badgeText: {
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 14,
+        color: '#FFFFFF',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
+    },
+    inputField: {
+        flex: 1,
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 15,
+        color: '#26282c',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
+        paddingVertical: 0,
+    },
+    inputFieldPlaceholder: {
+        color: '#94A3B8',
+    },
+    clearBtn: {
+        padding: 6,
+    },
     pinSelectedContent: {
         gap: 16,
         width: '100%',
@@ -691,32 +950,112 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
     },
-    addRouteConfirmBtn: {
+    pinActionButtonsRow: {
+        flexDirection: 'row',
+        gap: 12,
+        width: '100%',
+    },
+    pinPrimaryBtn: {
+        flex: 1,
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: '#4D6B18',
+        backgroundColor: '#FFFFFF',
         paddingVertical: 14,
+        paddingHorizontal: 16,
         borderRadius: 20,
-        gap: 8,
+        gap: 10,
     },
-    addRouteConfirmText: {
+    badgeCircleSmall: {
+        width: 24,
+        height: 24,
+        borderRadius: 12,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    badgeTextSmall: {
         fontFamily: 'GoogleSans-Bold',
-        fontSize: 15,
+        fontSize: 12,
         color: '#FFFFFF',
         includeFontPadding: false,
         textAlignVertical: 'center',
     },
-    removeWaypointBtn: {
+    pinBtnText: {
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 15,
+        color: '#0F172A',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
+    },
+    waypointPanelContent: {
+        gap: 14,
+        width: '100%',
+    },
+    waypointTopRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+    },
+    waypointTitle: {
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 20,
+        color: '#0F172A',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
+    },
+    waypointDistance: {
+        fontFamily: 'GoogleSans-Regular',
+        fontSize: 14,
+        color: '#64748B',
+        marginTop: 2,
+        includeFontPadding: false,
+        textAlignVertical: 'center',
+    },
+    radioOptionsRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginVertical: 4,
+    },
+    radioItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    radioCircle: {
+        width: 20,
+        height: 20,
+        borderRadius: 10,
+        backgroundColor: '#E2E8F0',
+    },
+    radioCircleSelected: {
+        backgroundColor: '#207bfb',
+    },
+    radioLabel: {
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 14,
+        color: '#0F172A',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
+    },
+    waypointFooterRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'flex-end',
+        marginTop: 4,
+    },
+    addRouteConfirmBtn: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: '#DC2626',
-        paddingVertical: 14,
+        backgroundColor: '#42444b',
+        paddingHorizontal: 22,
+        paddingVertical: 12,
         borderRadius: 20,
         gap: 8,
+        width: '100%',
     },
-    removeWaypointText: {
+    addRouteConfirmText: {
         fontFamily: 'GoogleSans-Bold',
         fontSize: 15,
         color: '#FFFFFF',

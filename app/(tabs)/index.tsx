@@ -8,10 +8,11 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Octicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 
 import PostCard, { PostCardProps } from '../../components/PostCard';
 import TeamPostCard, { TeamPostCardProps } from '../../components/TeamPostCard';
-import SearchFloat from '../../components/SearchFloat';
+import SearchBarHeader from '../../components/SearchBarHeader';
 
 export type SubTabType = 'EXPLORE' | 'FOLLOWING';
 
@@ -81,14 +82,32 @@ export default function HomeScreen() {
 
     const [subTab, setSubTab] = useState<SubTabType>('EXPLORE');
     const [feedItems, setFeedItems] = useState<FeedItem[]>(MOCK_FEED_ITEMS);
-    const [isSearchVisible, setIsSearchVisible] = useState(false);
+
+    // Search States
+    const [isSearchActive, setIsSearchActive] = useState<boolean>(false);
+    const [searchQuery, setSearchQuery] = useState<string>('');
 
     const filteredItems = useMemo(() => {
+        let items = feedItems;
+
         if (subTab === 'FOLLOWING') {
-            return feedItems.filter((item) => item.isFollowing);
+            items = items.filter((item) => item.isFollowing);
         }
-        return feedItems;
-    }, [subTab, feedItems]);
+
+        if (searchQuery.trim()) {
+            const query = searchQuery.trim().toLowerCase();
+            items = items.filter((item) => {
+                const matchUsername = item.username?.toLowerCase().includes(query);
+                const matchCaption = item.caption?.toLowerCase().includes(query);
+                const matchTeamName = item.itemType === 'TEAM' && item.teamName?.toLowerCase().includes(query);
+                const matchTags = item.itemType === 'POST' && item.tags?.some((t) => t.toLowerCase().includes(query));
+
+                return matchUsername || matchCaption || matchTeamName || matchTags;
+            });
+        }
+
+        return items;
+    }, [subTab, feedItems, searchQuery]);
 
     const handleToggleFollow = (id: string) => {
         setFeedItems((prev) =>
@@ -98,27 +117,28 @@ export default function HomeScreen() {
         );
     };
 
-    const searchPostsData = useMemo(() => {
-        return feedItems.map((item) => ({
-            id: item.id,
-            username: item.username,
-            caption: item.caption,
-        }));
-    }, [feedItems]);
+    const handleCancelSearch = () => {
+        setSearchQuery('');
+        setIsSearchActive(false);
+    };
+
+    const handleCreatePost = () => {
+        router.push('/create-post');
+    };
 
     const renderHeader = () => (
         <View style={styles.headerContainer}>
-            <View style={styles.headerBar}>
-                <Text style={styles.headerTitle}>HOME</Text>
-                <View style={styles.headerRightBtns}>
-                    <TouchableOpacity
-                        style={styles.circleHeaderBtn}
-                        activeOpacity={0.7}
-                        onPress={() => setIsSearchVisible(true)}
-                    >
-                        <Octicons name="search" size={18} color="#0F172A" />
-                    </TouchableOpacity>
-                </View>
+            {/* --- SHARED INTERACTIVE SEARCH HEADER --- */}
+            <View style={styles.headerPadding}>
+                <SearchBarHeader
+                    title="HOME"
+                    placeholder="Search posts, users, tags..."
+                    isSearching={isSearchActive}
+                    searchQuery={searchQuery}
+                    onSearchQueryChange={setSearchQuery}
+                    onStartSearch={() => setIsSearchActive(true)}
+                    onCancelSearch={handleCancelSearch}
+                />
             </View>
 
             <View style={styles.tabToggleRow}>
@@ -188,6 +208,28 @@ export default function HomeScreen() {
         );
     };
 
+    const renderEmpty = () => (
+        <View style={styles.emptyContainer}>
+            <View style={styles.sadIconCircle}>
+                <Octicons
+                    name={searchQuery.trim() ? 'search' : 'feed'}
+                    size={40}
+                    color="#94A3B8"
+                />
+            </View>
+            <Text style={styles.emptyTitle}>
+                {searchQuery.trim() ? 'No posts found' : 'No posts in this feed'}
+            </Text>
+            <Text style={styles.emptySubtitle}>
+                {searchQuery.trim()
+                    ? `No matching results for "${searchQuery}". Try different keywords.`
+                    : subTab === 'FOLLOWING'
+                        ? 'Follow more explorers to see their updates here.'
+                        : 'Be the first to share your journey with the community!'}
+            </Text>
+        </View>
+    );
+
     return (
         <SafeAreaView style={styles.container}>
             <FlatList
@@ -196,41 +238,22 @@ export default function HomeScreen() {
                 keyExtractor={(item, index) => item.id ?? index.toString()}
                 ListHeaderComponent={renderHeader}
                 renderItem={renderFeedItem}
+                ListEmptyComponent={renderEmpty}
                 ItemSeparatorComponent={() => <View style={styles.dashedSeparator} />}
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={styles.listContent}
             />
 
+            {/* --- FAB NÚT CỘNG ĐĂNG BÀI --- */}
             <View style={[styles.fabContainer, { bottom: bottomMargin + 70 }]}>
-                <TouchableOpacity style={styles.fabBtn} activeOpacity={0.85}>
+                <TouchableOpacity
+                    style={styles.fabBtn}
+                    activeOpacity={0.85}
+                    onPress={handleCreatePost}
+                >
                     <Octicons name="plus" size={24} color="#FFFFFF" />
                 </TouchableOpacity>
             </View>
-
-            <SearchFloat<{ id: string; username?: string; caption?: string }>
-                visible={isSearchVisible}
-                data={searchPostsData}
-                searchFields={['username', 'caption']}
-                placeholder="Search posts or users"
-                contentLayout="list"
-                onClose={() => setIsSearchVisible(false)}
-                renderItem={(item) => (
-                    <TouchableOpacity
-                        key={item.id}
-                        style={styles.searchResultRow}
-                        activeOpacity={0.8}
-                        onPress={() => setIsSearchVisible(false)}
-                    >
-                        <View style={styles.searchAvatarPlaceholder} />
-                        <View style={styles.searchInfoCol}>
-                            <Text style={styles.searchUsernameText}>@{item.username}</Text>
-                            <Text style={styles.searchCaptionText} numberOfLines={1}>
-                                {item.caption}
-                            </Text>
-                        </View>
-                    </TouchableOpacity>
-                )}
-            />
         </SafeAreaView>
     );
 }
@@ -254,37 +277,8 @@ const styles = StyleSheet.create({
         width: '100%',
         backgroundColor: '#F8FAFC',
     },
-    headerBar: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
+    headerPadding: {
         paddingHorizontal: 24,
-        marginBottom: 24,
-    },
-    headerTitle: {
-        fontFamily: 'GoogleSans-Bold',
-        fontSize: 22,
-        color: '#0F172A',
-        includeFontPadding: false,
-        textAlignVertical: 'center',
-    },
-    headerRightBtns: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 12,
-    },
-    circleHeaderBtn: {
-        width: 42,
-        height: 42,
-        borderRadius: 21,
-        backgroundColor: '#FFFFFF',
-        justifyContent: 'center',
-        alignItems: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 4,
-        elevation: 2,
     },
     tabToggleRow: {
         flexDirection: 'row',
@@ -349,38 +343,38 @@ const styles = StyleSheet.create({
         backgroundColor: '#50C1FF',
         justifyContent: 'center',
         alignItems: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.2,
-        shadowRadius: 8,
-        elevation: 10,
     },
-    searchResultRow: {
-        flexDirection: 'row',
+    emptyContainer: {
         alignItems: 'center',
-        backgroundColor: '#FFFFFF',
-        borderRadius: 12,
-        padding: 12,
-        gap: 12,
+        justifyContent: 'center',
+        paddingVertical: 60,
+        paddingHorizontal: 24,
     },
-    searchAvatarPlaceholder: {
-        width: 36,
-        height: 36,
-        borderRadius: 18,
-        backgroundColor: '#1E293B',
+    sadIconCircle: {
+        width: 80,
+        height: 80,
+        borderRadius: 40,
+        backgroundColor: '#E2E8F0',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: 16,
     },
-    searchInfoCol: {
-        flex: 1,
-    },
-    searchUsernameText: {
+    emptyTitle: {
         fontFamily: 'GoogleSans-Bold',
-        fontSize: 14,
-        color: '#0F172A',
+        fontSize: 18,
+        color: '#334155',
+        textAlign: 'center',
+        marginBottom: 8,
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
-    searchCaptionText: {
+    emptySubtitle: {
         fontFamily: 'GoogleSans-Regular',
-        fontSize: 12,
-        color: '#64748B',
-        marginTop: 2,
+        fontSize: 14,
+        color: '#94A3B8',
+        textAlign: 'center',
+        lineHeight: 20,
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
 });

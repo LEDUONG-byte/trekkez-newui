@@ -1,365 +1,343 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     StyleSheet,
     View,
     Text,
     TouchableOpacity,
     ScrollView,
-    TextInput,
-    Alert,
-    Modal,
-    TouchableWithoutFeedback,
+    Image,
+    ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Octicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 
-export interface PlanEquipmentItem {
-    id: string;
-    name: string;
-    category: string;
-    isPrepared: boolean;
-}
+// Component ExpandableCard có sẵn
+import ExpandableCard from '../components/ExpandableCard';
+
+// =====================================================================
+// 1. DATA CONTRACTS (TYPES & INTERFACES)
+// =====================================================================
+export type PlanDifficulty = 'EASY' | 'MODERATE' | 'HARD' | 'EXTREME';
 
 export interface PlanMember {
     id: string;
     name: string;
-    role: 'LEADER' | 'MEMBER';
-    avatarColor: string;
+    avatarUrl?: string;
+}
+
+export interface PlanRouteSummary {
+    id: string;
+    name: string;
+    totalDistanceKm?: number;
+    estimatedDurationMinutes?: number;
+    startPointName?: string;
+    endPointName?: string;
+    notes?: string;
 }
 
 export interface PlanDetailData {
     id: string;
-    title: string;
+    name: string;
+    difficulty: PlanDifficulty;
     description: string;
-    linkedRouteName: string;
-    difficulty: string;
-    startDate: string;
-    endDate: string;
-    startTime: string;
-    endTime: string;
-    members: PlanMember[];
-    equipment: PlanEquipmentItem[];
+    departureTime: string; // ISO 8601 hoặc định dạng hiển thị: "05:30 15/11/2026"
+    arrivalTime: string;   // "18:00 17/11/2026"
+    route: PlanRouteSummary;
+    team: {
+        id: string;
+        name: string;
+        members: PlanMember[];
+    };
+    noteContent?: string;  // Nội dung ghi chú hành trình
 }
 
-const MOCK_PLAN_DETAIL: PlanDetailData = {
-    id: 'plan_01',
-    title: 'Lịch trình phượt Tà Năng - Phan Dũng',
-    description: 'Chuyến trekking 3 ngày 2 đêm cùng bạn bè, khởi hành từ bìa rừng Tà Năng.',
-    linkedRouteName: 'Route Tà Năng (45km)',
-    difficulty: 'HARD',
-    startDate: '15/11/2026',
-    endDate: '17/11/2026',
-    startTime: '05:30',
-    endTime: '18:00',
-    members: [
-        { id: 'm1', name: 'Lê Văn Dương', role: 'LEADER', avatarColor: '#BAE6FD' },
-        { id: 'm2', name: 'Nguyễn Huy Hoàng', role: 'MEMBER', avatarColor: '#FEF08A' },
-        { id: 'm3', name: 'Võ Đặng Hồng Uyên', role: 'MEMBER', avatarColor: '#A7F3D0' },
-    ],
-    equipment: [
-        { id: 'eq1', name: 'Lều cắm trại 4 người', category: 'SHELTER', isPrepared: true },
-        { id: 'eq2', name: 'Túi ngủ ấm (5-10°C)', category: 'SLEEPING', isPrepared: true },
-        { id: 'eq3', name: 'Đèn pin đội đầu', category: 'LIGHTING', isPrepared: false },
-        { id: 'eq4', name: 'Bộ sơ cứu y tế', category: 'SAFETY', isPrepared: false },
-        { id: 'eq5', name: 'Gậy trekking', category: 'GEAR', isPrepared: true },
-    ],
+// Bảng màu cho từng cấp độ
+const DIFFICULTY_CONFIG: Record<PlanDifficulty, { bg: string; text: string }> = {
+    EASY: { bg: '#EBF4FF', text: '#2563EB' },
+    MODERATE: { bg: '#FEF3C7', text: '#D97706' },
+    HARD: { bg: '#FEE2E2', text: '#DC2626' },
+    EXTREME: { bg: '#EDE9FE', text: '#7C3AED' },
 };
 
+// =====================================================================
+// 2. MOCK / FALLBACK DATA
+// =====================================================================
+const DEFAULT_PLAN_DATA: PlanDetailData = {
+    id: 'plan_001',
+    name: 'Trekking Tà Năng - Phan Dũng',
+    difficulty: 'EASY',
+    description: 'Chuyến đi khám phá cung đường trekking đẹp nhất miền Nam qua đồi thông và thảo nguyên bao la.',
+    departureTime: '05:30 15/11/2026',
+    arrivalTime: '18:00 17/11/2026',
+    route: {
+        id: 'route_001',
+        name: 'route A',
+        totalDistanceKm: 32.5,
+        estimatedDurationMinutes: 1200,
+        startPointName: 'Xã Tà Năng, Đức Trọng, Lâm Đồng',
+        endPointName: 'Xã Phan Dũng, Tuy Phong, Bình Thuận',
+        notes: 'Chuẩn bị nước tối thiểu 3L/ngày, giày leo núi có độ bám cao và đèn pin chuyên dụng.',
+    },
+    team: {
+        id: 'team_001',
+        name: 'Sixseven Team',
+        members: [
+            {
+                id: 'mem_1',
+                name: 'Nguyễn Văn A',
+                avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100',
+            },
+            {
+                id: 'mem_2',
+                name: 'Trần Thị B',
+                avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100',
+            },
+            {
+                id: 'mem_3',
+                name: 'Lê Văn C',
+            },
+            {
+                id: 'mem_4',
+                name: 'Phạm Thị D',
+            },
+        ],
+    },
+    noteContent: 'Mang theo áo mưa, đồ sơ cứu y tế và kiểm tra bình acquy trước khi xuất phát qua đèo.',
+};
+
+// =====================================================================
+// 3. MAIN COMPONENT
+// =====================================================================
 export default function ManagePlanScreen() {
     const router = useRouter();
-    const params = useLocalSearchParams<{ id?: string }>();
+    const insets = useSafeAreaInsets();
+    const { id: planId } = useLocalSearchParams<{ id?: string }>();
 
-    const [plan, setPlan] = useState<PlanDetailData>(MOCK_PLAN_DETAIL);
-    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-    const [newEquipName, setNewEquipName] = useState('');
-    const [isAddEquipModalOpen, setIsAddEquipModalOpen] = useState(false);
+    const [planData, setPlanData] = useState<PlanDetailData>(DEFAULT_PLAN_DATA);
+    const [isLoading, setIsLoading] = useState<boolean>(false);
 
-    // Form edit states
-    const [editTitle, setEditTitle] = useState(plan.title);
-    const [editDesc, setEditDesc] = useState(plan.description);
+    useEffect(() => {
+        if (!planId) return;
 
-    const toggleEquipStatus = (itemId: string) => {
-        setPlan((prev) => ({
-            ...prev,
-            equipment: prev.equipment.map((item) =>
-                item.id === itemId ? { ...item, isPrepared: !item.isPrepared } : item
-            ),
-        }));
-    };
-
-    const handleAddEquipment = () => {
-        if (!newEquipName.trim()) return;
-        const newItem: PlanEquipmentItem = {
-            id: `eq_${Date.now()}`,
-            name: newEquipName.trim(),
-            category: 'CUSTOM',
-            isPrepared: false,
+        const loadPlanDetail = async () => {
+            setIsLoading(true);
+            try {
+                console.log(`Loading plan data for ID: ${planId}`);
+            } catch (error) {
+                console.error('Failed to load plan detail:', error);
+            } finally {
+                setIsLoading(false);
+            }
         };
-        setPlan((prev) => ({
-            ...prev,
-            equipment: [...prev.equipment, newItem],
-        }));
-        setNewEquipName('');
-        setIsAddEquipModalOpen(false);
+
+        loadPlanDetail();
+    }, [planId]);
+
+    const handleEdit = () => {
+        router.push({
+            pathname: '/makeaplan' as any,
+            params: { editPlanId: planData.id },
+        });
     };
 
-    const handleSaveGeneralInfo = () => {
-        setPlan((prev) => ({
-            ...prev,
-            title: editTitle,
-            description: editDesc,
-        }));
-        setIsEditModalOpen(false);
-    };
+    const currentDifficulty = DIFFICULTY_CONFIG[planData.difficulty] || DIFFICULTY_CONFIG.EASY;
 
-    const handleDeletePlan = () => {
-        Alert.alert('Delete Plan', 'Are you sure you want to delete this plan?', [
-            { text: 'Cancel', style: 'cancel' },
-            {
-                text: 'Delete',
-                style: 'destructive',
-                onPress: () => router.back(),
-            },
-        ]);
-    };
-
-    const preparedCount = plan.equipment.filter((e) => e.isPrepared).length;
+    if (isLoading) {
+        return (
+            <View style={[styles.container, styles.loadingCenter]}>
+                <ActivityIndicator size="large" color="#207BFB" />
+            </View>
+        );
+    }
 
     return (
-        <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-            {/* --- HEADER CONTAINER ĐỒNG BỘ CHUẨN (KHÔNG NÉT ĐỨT) --- */}
-            <View style={styles.headerContainer}>
-                <View style={styles.headerBar}>
-                    <TouchableOpacity
-                        style={styles.backBtn}
-                        onPress={() => router.back()}
-                        activeOpacity={0.7}
-                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    >
-                        <Octicons name="chevron-left" size={24} color="#0F172A" />
-                    </TouchableOpacity>
-
-                    <Text style={styles.headerTitle}>MANAGE PLAN</Text>
-
-                    <TouchableOpacity
-                        style={styles.deleteHeaderBtn}
-                        activeOpacity={0.7}
-                        onPress={handleDeletePlan}
-                    >
-                        <Octicons name="trash" size={18} color="#DC2626" />
-                    </TouchableOpacity>
-                </View>
+        <View style={[styles.container, { paddingTop: insets.top }]}>
+            {/* 1. Header */}
+            <View style={styles.header}>
+                <TouchableOpacity
+                    style={styles.backBtn}
+                    onPress={() => router.back()}
+                    activeOpacity={0.7}
+                >
+                    <Octicons name="chevron-left" size={24} color="#64748B" />
+                </TouchableOpacity>
+                <Text style={styles.headerTitle}>MANAGE PLAN</Text>
+                <View style={styles.headerPlaceholder} />
             </View>
 
+            {/* 2. Scrollable Cards Content */}
             <ScrollView
+                style={styles.content}
+                contentContainerStyle={[
+                    styles.scrollContent,
+                    { paddingBottom: insets.bottom + 85 },
+                ]}
                 showsVerticalScrollIndicator={false}
-                contentContainerStyle={styles.scrollContent}
             >
-                {/* --- CARD THÔNG TIN TỔNG QUAN --- */}
-                <View style={styles.sectionCard}>
-                    <View style={styles.cardHeaderRow}>
-                        <Text style={styles.planTitleText}>{plan.title}</Text>
-                        <TouchableOpacity
-                            style={styles.editIconBtn}
-                            activeOpacity={0.7}
-                            onPress={() => setIsEditModalOpen(true)}
-                        >
-                            <Octicons name="pencil" size={16} color="#64748B" />
-                        </TouchableOpacity>
+                {/* Card 1: Level Badge & Tên Plan */}
+                <View style={styles.cardLevelName}>
+                    <View style={[styles.badgeLevel, { backgroundColor: currentDifficulty.bg }]}>
+                        <Text style={[styles.badgeLevelText, { color: currentDifficulty.text }]}>
+                            {planData.difficulty}
+                        </Text>
                     </View>
+                    <Text style={styles.planNameText} numberOfLines={1}>
+                        {planData.name}
+                    </Text>
+                </View>
 
-                    <Text style={styles.planDescText}>{plan.description}</Text>
+                {/* Card 2: Mô tả & Thời gian Khởi hành - Đến nơi */}
+                <View style={styles.cardDesc}>
+                    <Text style={styles.descText}>
+                        {planData.description || '<descriptive paragraph>'}
+                    </Text>
 
-                    <View style={styles.tagMetaRow}>
-                        <View style={styles.metaBadge}>
-                            <Octicons name="git-branch" size={13} color="#0284C7" />
-                            <Text style={styles.metaBadgeText}>{plan.linkedRouteName}</Text>
-                        </View>
-                        <View style={[styles.metaBadge, styles.difficultyBadge]}>
-                            <Text style={styles.difficultyText}>{plan.difficulty}</Text>
-                        </View>
-                    </View>
-
-                    <View style={styles.divider} />
-
-                    <View style={styles.timeInfoGrid}>
-                        <View style={styles.timeItemCol}>
+                    <View style={styles.timeRow}>
+                        <View style={styles.timeCol}>
                             <Text style={styles.timeLabel}>DEPARTURE</Text>
-                            <Text style={styles.timeValue}>{plan.startTime} • {plan.startDate}</Text>
+                            <Text style={styles.timeValue}>{planData.departureTime}</Text>
                         </View>
-                        <View style={styles.timeItemCol}>
+                        <View style={[styles.timeCol, { alignItems: 'flex-end' }]}>
                             <Text style={styles.timeLabel}>ARRIVAL</Text>
-                            <Text style={styles.timeValue}>{plan.endTime} • {plan.endDate}</Text>
+                            <Text style={styles.timeValue}>{planData.arrivalTime}</Text>
                         </View>
                     </View>
                 </View>
 
-                {/* --- CHECKLIST ĐỒ ĐẠC / TRANG THIẾT BỊ --- */}
-                <View style={styles.sectionCard}>
-                    <View style={styles.cardHeaderRow}>
-                        <View>
-                            <Text style={styles.sectionTitle}>EQUIPMENT CHECKLIST</Text>
-                            <Text style={styles.sectionSubtitle}>
-                                Prepared {preparedCount}/{plan.equipment.length} items
-                            </Text>
-                        </View>
-                        <TouchableOpacity
-                            style={styles.addMiniBtn}
-                            activeOpacity={0.8}
-                            onPress={() => setIsAddEquipModalOpen(true)}
-                        >
-                            <Octicons name="plus" size={14} color="#0F172A" />
-                            <Text style={styles.addMiniBtnText}>Add</Text>
-                        </TouchableOpacity>
-                    </View>
-
-                    <View style={styles.equipListWrapper}>
-                        {plan.equipment.map((item) => (
-                            <TouchableOpacity
-                                key={item.id}
-                                style={[
-                                    styles.equipItemRow,
-                                    item.isPrepared && styles.equipItemRowPrepared,
-                                ]}
-                                activeOpacity={0.7}
-                                onPress={() => toggleEquipStatus(item.id)}
-                            >
-                                <View style={[styles.checkboxSquare, item.isPrepared && styles.checkboxSquareActive]}>
-                                    {item.isPrepared && <Octicons name="check" size={14} color="#FFFFFF" />}
-                                </View>
-                                <Text
-                                    style={[
-                                        styles.equipItemName,
-                                        item.isPrepared && styles.equipItemNameDone,
-                                    ]}
-                                >
-                                    {item.name}
-                                </Text>
-                            </TouchableOpacity>
-                        ))}
-                    </View>
-                </View>
-
-                {/* --- QUẢN LÝ THÀNH VIÊN TRONG PLAN --- */}
-                <View style={styles.sectionCard}>
-                    <View style={styles.cardHeaderRow}>
-                        <Text style={styles.sectionTitle}>MEMBERS ({plan.members.length})</Text>
-                        <TouchableOpacity
-                            style={styles.addMiniBtn}
-                            activeOpacity={0.8}
-                            onPress={() => router.push('/teaming')}
-                        >
-                            <Octicons name="person-add" size={13} color="#0F172A" />
-                            <Text style={styles.addMiniBtnText}>Invite</Text>
-                        </TouchableOpacity>
-                    </View>
-
-                    <View style={styles.memberListCol}>
-                        {plan.members.map((m) => (
-                            <View key={m.id} style={styles.memberRowItem}>
-                                <View style={[styles.memberAvatarCircle, { backgroundColor: m.avatarColor }]}>
-                                    <Text style={styles.memberAvatarInitial}>{m.name.charAt(0)}</Text>
-                                </View>
-                                <View style={styles.memberInfo}>
-                                    <Text style={styles.memberName}>{m.name}</Text>
-                                    <Text style={styles.memberRoleText}>{m.role}</Text>
-                                </View>
+                {/* Card 3: ExpandableCard cho Route Summary */}
+                <ExpandableCard
+                    id={`route_${planData.route.id}`}
+                    title={planData.route.name}
+                    iconName="milestone"
+                    headerColor="#207BFB"
+                    defaultExpanded={true}
+                    onHeaderPress={() => {
+                        router.push({
+                            pathname: '/manage-route' as any,
+                            params: { id: planData.route.id },
+                        });
+                    }}
+                >
+                    <View style={styles.routeDetailBox}>
+                        {planData.route.totalDistanceKm && (
+                            <View style={styles.routeMetaRow}>
+                                <Text style={styles.routeMetaLabel}>Khoảng cách:</Text>
+                                <Text style={styles.routeMetaValue}>{planData.route.totalDistanceKm} km</Text>
                             </View>
-                        ))}
+                        )}
+                        {planData.route.startPointName && (
+                            <View style={styles.routeMetaRow}>
+                                <Text style={styles.routeMetaLabel}>Xuất phát:</Text>
+                                <Text style={styles.routeMetaValue}>{planData.route.startPointName}</Text>
+                            </View>
+                        )}
+                        {planData.route.endPointName && (
+                            <View style={styles.routeMetaRow}>
+                                <Text style={styles.routeMetaLabel}>Đích đến:</Text>
+                                <Text style={styles.routeMetaValue}>{planData.route.endPointName}</Text>
+                            </View>
+                        )}
                     </View>
-                </View>
+                </ExpandableCard>
+
+                {/* Card 4: Nhóm tham gia (Team Box) */}
+                <TouchableOpacity
+                    style={styles.teamCard}
+                    activeOpacity={0.9}
+                    onPress={() => {
+                        router.push({
+                            pathname: '/manage-team' as any,
+                            params: { id: planData.team.id },
+                        });
+                    }}
+                >
+                    <View style={styles.teamAvatars}>
+                        {planData.team.members.slice(0, 3).map((member, index) => {
+                            const offsetStyle = { marginLeft: index === 0 ? 0 : -12, zIndex: 3 - index };
+
+                            if (member.avatarUrl) {
+                                return (
+                                    <Image
+                                        key={member.id}
+                                        source={{ uri: member.avatarUrl }}
+                                        style={[styles.teamAvatarImg, offsetStyle]}
+                                    />
+                                );
+                            }
+                            return (
+                                <View key={member.id} style={[styles.teamAvatarPlaceholder, offsetStyle]}>
+                                    <Text style={styles.avatarQuestion}>
+                                        {member.name ? member.name.charAt(0).toUpperCase() : '?'}
+                                    </Text>
+                                </View>
+                            );
+                        })}
+
+                        {planData.team.members.length > 3 && (
+                            <View style={[styles.teamAvatarMore, { marginLeft: -12, zIndex: 0 }]}>
+                                <Text style={styles.teamAvatarMoreText}>
+                                    +{planData.team.members.length - 3}
+                                </Text>
+                            </View>
+                        )}
+                    </View>
+
+                    <Text style={styles.teamNameText} numberOfLines={1}>
+                        {planData.team.name}
+                    </Text>
+                </TouchableOpacity>
+
+                {/* Card 5: Khung Note (Ghi chú chi tiết) */}
+                <TouchableOpacity
+                    style={styles.noteCard}
+                    activeOpacity={0.9}
+                    onPress={() => {
+                        router.push({
+                            pathname: '/note-detail' as any,
+                            params: { planId: planData.id },
+                        });
+                    }}
+                >
+                    <Text style={styles.noteCardTitleText}>note</Text>
+                    <Text style={styles.noteCardContentText} numberOfLines={4}>
+                        {planData.noteContent || 'Chưa có ghi chú nào được thêm vào...'}
+                    </Text>
+                </TouchableOpacity>
             </ScrollView>
 
-            {/* --- MODAL CHỈNH SỬA THÔNG TIN PLAN --- */}
-            <Modal visible={isEditModalOpen} transparent animationType="slide" onRequestClose={() => setIsEditModalOpen(false)}>
-                <View style={styles.modalBackdrop}>
-                    <TouchableWithoutFeedback onPress={() => setIsEditModalOpen(false)}>
-                        <View style={styles.modalDismissArea} />
-                    </TouchableWithoutFeedback>
-                    <View style={styles.modalSheet}>
-                        <Text style={styles.modalTitle}>Edit Plan Information</Text>
-
-                        <View style={styles.inputGroup}>
-                            <Text style={styles.fieldLabel}>Plan Name</Text>
-                            <TextInput
-                                style={styles.textInputBox}
-                                value={editTitle}
-                                onChangeText={setEditTitle}
-                                placeholder="Enter plan name..."
-                                placeholderTextColor="#94A3B8"
-                            />
-                        </View>
-
-                        <View style={styles.inputGroup}>
-                            <Text style={styles.fieldLabel}>Description</Text>
-                            <TextInput
-                                style={[styles.textInputBox, styles.textAreaBox]}
-                                value={editDesc}
-                                onChangeText={setEditDesc}
-                                placeholder="Enter description..."
-                                placeholderTextColor="#94A3B8"
-                                multiline
-                                numberOfLines={3}
-                            />
-                        </View>
-
-                        <TouchableOpacity style={styles.confirmBtn} activeOpacity={0.85} onPress={handleSaveGeneralInfo}>
-                            <Text style={styles.confirmBtnText}>Save Changes</Text>
-                        </TouchableOpacity>
-                    </View>
-                </View>
-            </Modal>
-
-            {/* --- MODAL THÊM ĐỒ DÙNG --- */}
-            <Modal visible={isAddEquipModalOpen} transparent animationType="fade" onRequestClose={() => setIsAddEquipModalOpen(false)}>
-                <View style={styles.modalBackdrop}>
-                    <TouchableWithoutFeedback onPress={() => setIsAddEquipModalOpen(false)}>
-                        <View style={styles.modalDismissArea} />
-                    </TouchableWithoutFeedback>
-                    <View style={styles.modalSheet}>
-                        <Text style={styles.modalTitle}>Add Checklist Item</Text>
-                        <TextInput
-                            style={styles.textInputBox}
-                            value={newEquipName}
-                            onChangeText={setNewEquipName}
-                            placeholder="e.g. Rain poncho, Water filter..."
-                            placeholderTextColor="#94A3B8"
-                            autoFocus
-                        />
-                        <TouchableOpacity style={styles.confirmBtn} activeOpacity={0.85} onPress={handleAddEquipment}>
-                            <Text style={styles.confirmBtnText}>Add Item</Text>
-                        </TouchableOpacity>
-                    </View>
-                </View>
-            </Modal>
-        </SafeAreaView>
+            {/* 3. Nút Edit cố định chân trang */}
+            <View style={[styles.bottomContainer, { paddingBottom: Math.max(insets.bottom, 20) }]}>
+                <TouchableOpacity
+                    style={styles.editBtn}
+                    activeOpacity={0.85}
+                    onPress={handleEdit}
+                >
+                    <Text style={styles.editBtnText}>Edit</Text>
+                </TouchableOpacity>
+            </View>
+        </View>
     );
 }
 
+// =====================================================================
+// 4. STYLES
+// =====================================================================
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#F8FAFC',
+        backgroundColor: '#F1F5F9',
     },
-    headerContainer: {
-        width: '100%',
-        backgroundColor: '#F8FAFC',
+    loadingCenter: {
+        justifyContent: 'center',
+        alignItems: 'center',
     },
-    headerBar: {
+    header: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        paddingHorizontal: 24,
-        paddingTop: 12,
-        marginBottom: 16,
-    },
-    headerTitle: {
-        fontFamily: 'GoogleSans-Bold',
-        fontSize: 22,
-        color: '#0F172A',
-        includeFontPadding: false,
-        textAlignVertical: 'center',
+        paddingHorizontal: 16,
+        paddingVertical: 14,
     },
     backBtn: {
         width: 36,
@@ -367,272 +345,227 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'flex-start',
     },
-    deleteHeaderBtn: {
-        width: 36,
-        height: 36,
-        justifyContent: 'center',
-        alignItems: 'flex-end',
-    },
-    scrollContent: {
-        paddingHorizontal: 24,
-        paddingTop: 8,
-        paddingBottom: 40,
-        gap: 16,
-    },
-    sectionCard: {
-        backgroundColor: '#FFFFFF',
-        borderRadius: 20,
-        borderWidth: 1,
-        borderColor: '#E2E8F0',
-        padding: 18,
-        gap: 12,
-    },
-    cardHeaderRow: {
-        flexDirection: 'row',
-        alignItems: 'flex-start',
-        justifyContent: 'space-between',
-    },
-    planTitleText: {
-        flex: 1,
+    headerTitle: {
         fontFamily: 'GoogleSans-Bold',
         fontSize: 18,
         color: '#0F172A',
+        letterSpacing: 0.5,
         includeFontPadding: false,
         textAlignVertical: 'center',
-        paddingRight: 8,
     },
-    editIconBtn: {
-        padding: 4,
+    headerPlaceholder: {
+        width: 36,
     },
-    planDescText: {
-        fontFamily: 'GoogleSans-Regular',
+    content: {
+        flex: 1,
+    },
+    scrollContent: {
+        paddingHorizontal: 16,
+        gap: 16,
+        paddingTop: 8,
+    },
+    // Card 1: Level + Name
+    cardLevelName: {
+        backgroundColor: '#FFFFFF',
+        borderRadius: 16,
+        paddingHorizontal: 16,
+        paddingVertical: 16,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 16,
+    },
+    badgeLevel: {
+        paddingHorizontal: 20,
+        paddingVertical: 10,
+        borderRadius: 10,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    badgeLevelText: {
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 13,
+        includeFontPadding: false,
+        textAlignVertical: 'center',
+    },
+    planNameText: {
+        flex: 1,
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 16,
+        color: '#334155',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
+    },
+    // Card 2: Desc + Departure/Arrival
+    cardDesc: {
+        backgroundColor: '#FFFFFF',
+        borderRadius: 16,
+        padding: 16,
+        gap: 32,
+    },
+    descText: {
+        fontFamily: 'GoogleSans-Medium',
         fontSize: 14,
-        color: '#475569',
+        color: '#334155',
         lineHeight: 20,
         includeFontPadding: false,
+        textAlignVertical: 'center',
     },
-    tagMetaRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-    },
-    metaBadge: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#E0F2FE',
-        paddingHorizontal: 10,
-        paddingVertical: 5,
-        borderRadius: 8,
-        gap: 6,
-    },
-    metaBadgeText: {
-        fontFamily: 'GoogleSans-Bold',
-        fontSize: 12,
-        color: '#0284C7',
-        includeFontPadding: false,
-    },
-    difficultyBadge: {
-        backgroundColor: '#FEF3C7',
-    },
-    difficultyText: {
-        fontFamily: 'GoogleSans-Bold',
-        fontSize: 12,
-        color: '#B45309',
-        includeFontPadding: false,
-    },
-    divider: {
-        height: 1,
-        backgroundColor: '#F1F5F9',
-        marginVertical: 4,
-    },
-    timeInfoGrid: {
+    timeRow: {
         flexDirection: 'row',
         justifyContent: 'space-between',
+        alignItems: 'flex-end',
     },
-    timeItemCol: {
-        gap: 4,
+    timeCol: {
+        gap: 6,
     },
     timeLabel: {
         fontFamily: 'GoogleSans-Bold',
         fontSize: 11,
-        color: '#94A3B8',
+        color: '#64748B',
+        letterSpacing: 0.5,
         includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     timeValue: {
         fontFamily: 'GoogleSans-Bold',
+        fontSize: 14,
+        color: '#0F172A',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
+    },
+    // Card 3: Route Details Box
+    routeDetailBox: {
+        gap: 8,
+    },
+    routeMetaRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    routeMetaLabel: {
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 13,
+        color: '#64748B',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
+    },
+    routeMetaValue: {
+        flex: 1,
+        fontFamily: 'GoogleSans-Medium',
         fontSize: 13,
         color: '#0F172A',
         includeFontPadding: false,
-    },
-    sectionTitle: {
-        fontFamily: 'GoogleSans-Bold',
-        fontSize: 15,
-        color: '#0F172A',
-        includeFontPadding: false,
         textAlignVertical: 'center',
     },
-    sectionSubtitle: {
-        fontFamily: 'GoogleSans-Regular',
-        fontSize: 12,
-        color: '#64748B',
-        marginTop: 2,
-        includeFontPadding: false,
-    },
-    addMiniBtn: {
+    // Card 4: Team Box
+    teamCard: {
+        backgroundColor: '#207BFB',
+        borderRadius: 16,
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#F1F5F9',
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: 14,
-        gap: 6,
-    },
-    addMiniBtnText: {
-        fontFamily: 'GoogleSans-Bold',
-        fontSize: 12,
-        color: '#0F172A',
-        includeFontPadding: false,
-    },
-    equipListWrapper: {
-        gap: 8,
-        marginTop: 4,
-    },
-    equipItemRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#F8FAFC',
-        paddingHorizontal: 14,
-        paddingVertical: 12,
-        borderRadius: 12,
-        gap: 12,
-    },
-    equipItemRowPrepared: {
-        backgroundColor: '#F0FDF4',
-    },
-    checkboxSquare: {
-        width: 22,
-        height: 22,
-        borderRadius: 6,
-        borderWidth: 2,
-        borderColor: '#CBD5E1',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    checkboxSquareActive: {
-        backgroundColor: '#16A34A',
-        borderColor: '#16A34A',
-    },
-    equipItemName: {
-        fontFamily: 'GoogleSans-Medium',
-        fontSize: 14,
-        color: '#0F172A',
-        includeFontPadding: false,
-        textAlignVertical: 'center',
-    },
-    equipItemNameDone: {
-        color: '#94A3B8',
-        textDecorationLine: 'line-through',
-    },
-    memberListCol: {
-        gap: 10,
-        marginTop: 4,
-    },
-    memberRowItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 12,
-    },
-    memberAvatarCircle: {
-        width: 38,
-        height: 38,
-        borderRadius: 19,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    memberAvatarInitial: {
-        fontFamily: 'GoogleSans-Bold',
-        fontSize: 14,
-        color: '#0F172A',
-        includeFontPadding: false,
-    },
-    memberInfo: {
-        flex: 1,
-        gap: 2,
-    },
-    memberName: {
-        fontFamily: 'GoogleSans-Bold',
-        fontSize: 14,
-        color: '#0F172A',
-        includeFontPadding: false,
-    },
-    memberRoleText: {
-        fontFamily: 'GoogleSans-Regular',
-        fontSize: 12,
-        color: '#64748B',
-        includeFontPadding: false,
-    },
-    modalBackdrop: {
-        flex: 1,
-        backgroundColor: 'rgba(15, 23, 42, 0.45)',
-        justifyContent: 'flex-end',
-    },
-    modalDismissArea: {
-        flex: 1,
-    },
-    modalSheet: {
-        backgroundColor: '#FFFFFF',
-        borderTopLeftRadius: 24,
-        borderTopRightRadius: 24,
-        paddingHorizontal: 24,
-        paddingTop: 20,
-        paddingBottom: 32,
+        paddingHorizontal: 16,
+        paddingVertical: 14,
         gap: 14,
     },
-    modalTitle: {
+    teamAvatars: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    teamAvatarImg: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        borderWidth: 2,
+        borderColor: '#FFFFFF',
+    },
+    teamAvatarPlaceholder: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: '#FFFFFF',
+        borderWidth: 2,
+        borderColor: '#207BFB',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    teamAvatarMore: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: '#0F172A',
+        borderWidth: 2,
+        borderColor: '#FFFFFF',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    teamAvatarMoreText: {
         fontFamily: 'GoogleSans-Bold',
-        fontSize: 18,
-        color: '#0F172A',
+        fontSize: 11,
+        color: '#FFFFFF',
         includeFontPadding: false,
         textAlignVertical: 'center',
     },
-    inputGroup: {
-        gap: 6,
-    },
-    fieldLabel: {
+    avatarQuestion: {
         fontFamily: 'GoogleSans-Bold',
-        fontSize: 13,
-        color: '#475569',
+        fontSize: 14,
+        color: '#64748B',
         includeFontPadding: false,
+        textAlignVertical: 'center',
     },
-    textInputBox: {
-        backgroundColor: '#F8FAFC',
-        borderWidth: 1,
-        borderColor: '#E2E8F0',
-        borderRadius: 12,
-        paddingHorizontal: 14,
-        height: 48,
+    teamNameText: {
+        flex: 1,
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 16,
+        color: '#FFFFFF',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
+    },
+    // Card 5: Note Card Box
+    noteCard: {
+        backgroundColor: '#FFFFFF',
+        borderRadius: 16,
+        borderWidth: 1.5,
+        borderColor: '#CBD5E1',
+        borderStyle: 'dashed',
+        paddingHorizontal: 16,
+        paddingVertical: 16,
+        minHeight: 140,
+        gap: 8,
+    },
+    noteCardTitleText: {
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 14,
+        color: '#64748B',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
+    },
+    noteCardContentText: {
         fontFamily: 'GoogleSans-Regular',
         fontSize: 14,
-        color: '#0F172A',
+        color: '#334155',
+        lineHeight: 20,
         includeFontPadding: false,
         textAlignVertical: 'center',
     },
-    textAreaBox: {
-        height: 80,
-        textAlignVertical: 'top',
-        paddingTop: 10,
+    // Footer CTA
+    bottomContainer: {
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        paddingHorizontal: 16,
+        backgroundColor: 'transparent',
     },
-    confirmBtn: {
-        backgroundColor: '#1E293B',
-        paddingVertical: 14,
+    editBtn: {
+        backgroundColor: '#1E232B',
+        height: 52,
         borderRadius: 14,
-        alignItems: 'center',
         justifyContent: 'center',
-        marginTop: 6,
+        alignItems: 'center',
     },
-    confirmBtnText: {
+    editBtnText: {
         fontFamily: 'GoogleSans-Bold',
-        fontSize: 15,
+        fontSize: 16,
         color: '#FFFFFF',
         includeFontPadding: false,
         textAlignVertical: 'center',

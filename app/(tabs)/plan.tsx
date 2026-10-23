@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Octicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import ExpandableCard from '../../components/ExpandableCard';
+import SearchBarHeader from '../../components/SearchBarHeader';
 
 // =====================================================================
 // TYPES & DATA MODELS
@@ -83,6 +84,10 @@ export default function PlanScreen() {
     const [routes, setRoutes] = useState<PlanItem[]>(INITIAL_ROUTES);
     const [isLoading, setIsLoading] = useState<boolean>(false);
 
+    // Search States
+    const [isSearchActive, setIsSearchActive] = useState<boolean>(false);
+    const [searchQuery, setSearchQuery] = useState<string>('');
+
     // Navigation & Sort States
     const [subTab, setSubTab] = useState<SubTabType>('PLAN');
     const [planSortBy, setPlanSortBy] = useState<SortOption>('name');
@@ -94,12 +99,23 @@ export default function PlanScreen() {
     const rawList = subTab === 'PLAN' ? plans : routes;
 
     // -----------------------------------------------------------------
-    // COMPUTED & SORTING LOGIC
+    // COMPUTED & SEARCH + SORTING LOGIC
     // -----------------------------------------------------------------
-    const sortedList = useMemo(() => {
+    const filteredAndSortedList = useMemo(() => {
         if (!rawList || rawList.length === 0) return [];
-        const listCopy = [...rawList];
+        let listCopy = [...rawList];
 
+        // Lọc theo từ khóa tìm kiếm (tiêu đề hoặc chi tiết)
+        if (searchQuery.trim()) {
+            const query = searchQuery.trim().toLowerCase();
+            listCopy = listCopy.filter(
+                (item) =>
+                    item.title.toLowerCase().includes(query) ||
+                    (item.details && item.details.toLowerCase().includes(query))
+            );
+        }
+
+        // Sắp xếp danh sách
         switch (currentSortBy) {
             case 'name':
                 return listCopy.sort((a, b) => a.title.localeCompare(b.title));
@@ -114,9 +130,9 @@ export default function PlanScreen() {
             default:
                 return listCopy;
         }
-    }, [rawList, currentSortBy]);
+    }, [rawList, currentSortBy, searchQuery]);
 
-    const isEmpty = sortedList.length === 0;
+    const isEmpty = filteredAndSortedList.length === 0;
 
     const handleSelectSort = (option: SortOption) => {
         if (subTab === 'PLAN') {
@@ -127,8 +143,13 @@ export default function PlanScreen() {
         setIsMenuVisible(false);
     };
 
+    const handleCancelSearch = () => {
+        setSearchQuery('');
+        setIsSearchActive(false);
+    };
+
     // -----------------------------------------------------------------
-    // CHUYỂN HƯỚNG TỚI TRANG QUẢN LÝ KHI BẤM VÀO TIÊU ĐỀ
+    // CHUYỂN HƯỚNG TỚI TRANG QUẢN LÝ
     // -----------------------------------------------------------------
     const handleItemPress = (item: PlanItem) => {
         if (subTab === 'PLAN') {
@@ -150,15 +171,16 @@ export default function PlanScreen() {
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={styles.scrollContent}
             >
-                {/* --- HEADER BAR --- */}
-                <View style={styles.headerBar}>
-                    <Text style={styles.headerTitle}>PLAN</Text>
-                    <View style={styles.headerRightBtns}>
-                        <TouchableOpacity style={styles.circleHeaderBtn} activeOpacity={0.7}>
-                            <Octicons name="search" size={18} color="#0F172A" />
-                        </TouchableOpacity>
-                    </View>
-                </View>
+                {/* --- HEADER TƯƠNG TÁC DÙNG CHUNG SEARCHBARHEADER --- */}
+                <SearchBarHeader
+                    title="PLAN"
+                    placeholder={`Search ${subTab.toLowerCase()} by title, details...`}
+                    isSearching={isSearchActive}
+                    searchQuery={searchQuery}
+                    onSearchQueryChange={setSearchQuery}
+                    onStartSearch={() => setIsSearchActive(true)}
+                    onCancelSearch={handleCancelSearch}
+                />
 
                 {/* --- ACTION CARDS --- */}
                 <View style={styles.actionCardsRow}>
@@ -244,20 +266,30 @@ export default function PlanScreen() {
                 ) : isEmpty ? (
                     <View style={styles.emptyContainer}>
                         <View style={styles.sadIconCircle}>
-                            <Octicons name="smiley" size={48} color="#94A3B8" />
+                            <Octicons
+                                name={searchQuery.trim() ? 'search' : 'smiley'}
+                                size={40}
+                                color="#94A3B8"
+                            />
                         </View>
                         <Text style={styles.emptyTitle}>
-                            {subTab === 'PLAN' ? 'You currently have no plans !' : 'You currently have no route !'}
+                            {searchQuery.trim()
+                                ? `No ${subTab.toLowerCase()} found`
+                                : subTab === 'PLAN'
+                                    ? 'You currently have no plans !'
+                                    : 'You currently have no route !'}
                         </Text>
                         <Text style={styles.emptySubtitle}>
-                            {subTab === 'PLAN'
-                                ? 'Create a new plan or explore existing plans from the community'
-                                : 'Create a new route or explore existing route from the community'}
+                            {searchQuery.trim()
+                                ? `No results matching "${searchQuery}". Try different keywords.`
+                                : subTab === 'PLAN'
+                                    ? 'Create a new plan or explore existing plans from the community'
+                                    : 'Create a new route or explore existing route from the community'}
                         </Text>
                     </View>
                 ) : (
                     <View style={styles.listContainer}>
-                        {sortedList.map((item) => (
+                        {filteredAndSortedList.map((item) => (
                             <ExpandableCard
                                 key={item.id}
                                 id={item.id}
@@ -265,17 +297,29 @@ export default function PlanScreen() {
                                 isOwnedByYou={item.isOwnedByYou}
                                 headerColor={item.color}
                                 defaultExpanded={false}
-                                onHeaderPress={() => handleItemPress(item)}
                             >
-                                {item.details ? (
-                                    <View style={styles.cardContentWrapper}>
+                                <View style={styles.cardContentWrapper}>
+                                    {item.details ? (
                                         <Text style={styles.cardDetailText}>{item.details}</Text>
-                                        <View style={styles.cardMetaRow}>
-                                            <Text style={styles.cardMetaText}>📅 Khởi hành: {item.startDate}</Text>
-                                            <Text style={styles.cardMetaText}>🕒 Tạo lúc: {item.createdAt}</Text>
-                                        </View>
+                                    ) : null}
+
+                                    <View style={styles.cardMetaRow}>
+                                        <Text style={styles.cardMetaText}>📅 Khởi hành: {item.startDate}</Text>
+                                        <Text style={styles.cardMetaText}>🕒 Tạo lúc: {item.createdAt}</Text>
                                     </View>
-                                ) : null}
+
+                                    {/* Nút chuyển tới trang quản lý tương ứng */}
+                                    <TouchableOpacity
+                                        style={styles.manageBtn}
+                                        activeOpacity={0.8}
+                                        onPress={() => handleItemPress(item)}
+                                    >
+                                        <Text style={styles.manageBtnText}>
+                                            {subTab === 'PLAN' ? 'Manage Plan' : 'Manage Route'}
+                                        </Text>
+                                        <Octicons name="arrow-right" size={14} color="#FFFFFF" />
+                                    </TouchableOpacity>
+                                </View>
                             </ExpandableCard>
                         ))}
                     </View>
@@ -351,32 +395,6 @@ const styles = StyleSheet.create({
         paddingTop: 16,
         paddingBottom: 110,
     },
-    headerBar: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        marginBottom: 24,
-    },
-    headerTitle: {
-        fontFamily: 'GoogleSans-Bold',
-        fontSize: 22,
-        color: '#0F172A',
-        includeFontPadding: false,
-        textAlignVertical: 'center',
-    },
-    headerRightBtns: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 12,
-    },
-    circleHeaderBtn: {
-        width: 42,
-        height: 42,
-        borderRadius: 21,
-        backgroundColor: '#FFFFFF',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
     actionCardsRow: {
         flexDirection: 'row',
         gap: 12,
@@ -401,12 +419,16 @@ const styles = StyleSheet.create({
         fontSize: 16,
         color: '#FFFFFF',
         width: '80%',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     createRouteText: {
         fontFamily: 'GoogleSans-Bold',
         fontSize: 16,
         color: '#0F172A',
         width: '80%',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     cardIconBottomRight: {
         position: 'absolute',
@@ -492,24 +514,45 @@ const styles = StyleSheet.create({
         marginTop: 4,
     },
     cardContentWrapper: {
-        gap: 8,
+        gap: 10,
+        paddingTop: 4,
     },
     cardDetailText: {
         fontFamily: 'GoogleSans-Regular',
         fontSize: 14,
         color: '#334155',
         lineHeight: 20,
+        includeFontPadding: false,
     },
     cardMetaRow: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        marginTop: 6,
+        marginTop: 4,
     },
     cardMetaText: {
         fontFamily: 'GoogleSans-Regular',
         fontSize: 12,
         color: '#64748B',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
+    },
+    manageBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#1E293B',
+        paddingVertical: 10,
+        borderRadius: 10,
+        marginTop: 8,
+        gap: 8,
+    },
+    manageBtnText: {
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 13,
+        color: '#FFFFFF',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     loadingContainer: {
         paddingVertical: 60,
@@ -537,6 +580,8 @@ const styles = StyleSheet.create({
         color: '#334155',
         textAlign: 'center',
         marginBottom: 8,
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     emptySubtitle: {
         fontFamily: 'GoogleSans-Regular',
@@ -544,6 +589,8 @@ const styles = StyleSheet.create({
         color: '#94A3B8',
         textAlign: 'center',
         lineHeight: 20,
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     modalOverlay: {
         flex: 1,
@@ -558,11 +605,6 @@ const styles = StyleSheet.create({
         backgroundColor: '#FFFFFF',
         borderRadius: 16,
         paddingVertical: 4,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.15,
-        shadowRadius: 10,
-        elevation: 6,
     },
     menuOptionBtn: {
         paddingHorizontal: 20,
@@ -588,9 +630,13 @@ const styles = StyleSheet.create({
         fontFamily: 'GoogleSans-Medium',
         fontSize: 14,
         color: '#0F172A',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     menuOptionTextSelected: {
         fontFamily: 'GoogleSans-Bold',
         color: '#0284C7',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
 });
