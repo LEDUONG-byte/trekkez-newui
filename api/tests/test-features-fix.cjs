@@ -1,0 +1,25 @@
+const fs = require('node:fs');
+const path = require('node:path');
+const assert = require('node:assert/strict');
+const projectRoot = path.resolve(__dirname,'..','..');
+function read(name) {return fs.readFileSync(path.join(projectRoot,name),'utf8');}
+const home = read('app/(tabs)/index.tsx');
+const team = read('app/(tabs)/team.tsx');
+const plan = read('app/(tabs)/plan.tsx');
+const gateway = read('api/integration/newui-gateway.ts');
+const card = read('components/ExpandableCard.tsx');
+assert.match(gateway,/user_follows\?follower_id=eq/);
+assert.match(gateway,/loadFollowingAuthorIds/);
+assert.match(home,/p\.authorId && authorIds\.has\(p\.authorId\)/);
+assert.match(home,/item\.itemType === 'POST' && Boolean\(item\.authorId/);
+assert.match(home,/setSelectedSearchId\(item\.id\)/);
+assert.match(team,/onPress=\{\(\) => setIsSearchVisible\(true\)\}/);
+assert.match(team,/await uploadTeam\(/);
+assert.match(team,/await getRemoteTeam\(id\)/);
+assert.match(team,/await requestTeamJoin\(team\.id\)/);
+assert.match(plan,/visibleItems\.map/);
+assert.match(plan,/defaultExpanded=\{selectedSearchId === item\.id\}/);
+assert.match(plan,/item\.startDate \|\| 'Chưa có ngày'/);
+assert.doesNotMatch(card,/&lt;place holder&gt;/);
+console.log('PASS: New UI features structural tests (Home following/search, Team find/create/join, Plan search/details).');
+console.log('NOTE: This test does not contact Supabase or validate Mapbox native/web runtime.');

@@ -32,6 +32,7 @@ const services = {
     id:'r1',title:'Trail',mine:true,details:'',startDate:'',createdAt:''}]},
   '../services/plan/plan-item-catalog': {getPlanItemCategories:async()=>[{id:'food',name:'FOOD',items:[]}]},
   '../services/community/social-supabase': {getUserFollowConnections:async()=>[{userId:'u2'}]},
+  '../services/core/supabase-client': {getAllSupabaseRows:async()=>[{following_id:'u2'}]},
   './newui-mappers': map,
 };
 const gateway = compile('../integration/newui-gateway.ts', name=>{

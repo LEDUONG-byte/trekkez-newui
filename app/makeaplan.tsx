@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
     StyleSheet,
     View,
@@ -7,12 +7,19 @@ import {
     ScrollView,
     KeyboardAvoidingView,
     Platform,
+    Alert,
+    TextInput,
     Modal,
     TouchableWithoutFeedback,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Octicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
+import { loadPlanWizardOptions } from '../api/integration/newui-gateway';
+import { createRemotePlan } from '../api/services/plan/plan-team-supabase';
+import { getAuthSession } from '../api/services/auth/auth-session';
+import { validateTripWindow } from '../api/services/plan/trip-time';
+import type { TripPlan } from '../api/types/activity';
 
 import ExpandableCard from '../components/ExpandableCard';
 import UserCard, { UserCardData } from '../components/UserCard';
@@ -68,12 +75,7 @@ const MOCK_TEAMS = [
     { id: 't2', name: 'Alpha Team' },
 ];
 
-const MOCK_FRIENDS: UserCardData[] = [
-    { id: 'u1', name: 'Lê Dương', username: 'leduong232' },
-    { id: 'u2', name: 'Nguyễn Huy Hoàng', username: 'huyhoangnguyen' },
-    { id: 'u3', name: 'Võ Đặng Hồng Uyên', username: 'cuddlebug242404' },
-    { id: 'u4', name: 'Trần Văn Nam', username: 'namtv2026' },
-];
+const MOCK_FRIENDS: UserCardData[] = []; // No fake user IDs may be selected for real invitations.
 
 const INITIAL_ITEM_CATEGORIES: ItemCategory[] = [
     {
@@ -146,7 +148,11 @@ export default function MakeAPlanScreen() {
     const [currentStepIndex, setCurrentStepIndex] = useState(0);
     const step = WIZARD_STEPS[currentStepIndex];
 
-    const [selectedRouteId, setSelectedRouteId] = useState<string>('r1');
+    const [selectedRouteId, setSelectedRouteId] = useState<string>('');
+    const [availableRoutes, setAvailableRoutes] = useState<RouteItem[]>([]);
+    const [availableTeams, setAvailableTeams] = useState<{ id: string; name: string }[]>([]);
+    const [saveError, setSaveError] = useState('');
+    const [saving, setSaving] = useState(false);
     const [isCreatingNewRoute, setIsCreatingNewRoute] = useState(false);
     const [routeSortBy, setRouteSortBy] = useState<SortOption>('name');
     const [isMenuVisible, setIsMenuVisible] = useState<boolean>(false);
@@ -168,7 +174,7 @@ export default function MakeAPlanScreen() {
     const [hasTeam, setHasTeam] = useState<'YES' | 'NO'>('NO');
     const [isRandomMatchmaking, setIsRandomMatchmaking] = useState<'YES' | 'NO'>('NO');
     const [maxMembers, setMaxMembers] = useState('');
-    const [selectedTeamId, setSelectedTeamId] = useState<string>('t1');
+    const [selectedTeamId, setSelectedTeamId] = useState<string>('');
 
     const [invitedUserIds, setInvitedUserIds] = useState<string[]>([]);
     const [isSearchUserVisible, setIsSearchUserVisible] = useState(false);
@@ -178,6 +184,30 @@ export default function MakeAPlanScreen() {
 
     const [itemCategories, setItemCategories] = useState<ItemCategory[]>(INITIAL_ITEM_CATEGORIES);
     const [activeCategoryForSearch, setActiveCategoryForSearch] = useState<ItemCategory | null>(null);
+
+    const loadOptions = useCallback(async () => {
+        setSaveError('');
+        try {
+            const options = await loadPlanWizardOptions();
+            const items: RouteItem[] = options.routes.map((r) => ({
+                id: r.id, title: r.title, color: r.color, startDate: r.startDate, createdAt: r.createdAt,
+            }));
+            setAvailableRoutes(items);
+            setSelectedRouteId((id) => id && items.some((r) => r.id === id) ? id : (items[0]?.id ?? ''));
+            setAvailableTeams(options.teams);
+            setSelectedTeamId((id) => id && options.teams.some((t) => t.id === id) ? id : (options.teams[0]?.id ?? ''));
+            if (options.categories.length) setItemCategories(options.categories);
+            if (options.warnings.length) setSaveError(options.warnings.join(' | '));
+            if (items.length === 0) {
+                setSaveError('Chưa có Route đã lưu trên Supabase. Không thể tạo Plan cho đến khi có Route thật. Hãy tạo Route từ Make a Route và kiểm tra hợp đồng ghi của Supabase.');
+            }
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            console.error('[TrekkEZ Plan] Load options failed:', message);
+            setSaveError(message);
+        }
+    }, []);
+    useFocusEffect(useCallback(() => { void loadOptions(); }, [loadOptions]));
 
     const flatEquipmentList = useMemo(() => {
         const list: EquipmentItem[] = [];
@@ -194,7 +224,7 @@ export default function MakeAPlanScreen() {
     }, [itemCategories]);
 
     const sortedRoutes = useMemo(() => {
-        const listCopy = [...MOCK_ROUTES];
+        const listCopy = [...availableRoutes];
         switch (routeSortBy) {
             case 'name':
                 return listCopy.sort((a, b) => a.title.localeCompare(b.title));
@@ -205,14 +235,68 @@ export default function MakeAPlanScreen() {
             default:
                 return listCopy;
         }
-    }, [routeSortBy]);
+    }, [routeSortBy, availableRoutes]);
 
-    const goNext = () => {
-        if (currentStepIndex < WIZARD_STEPS.length - 1) {
-            setCurrentStepIndex(currentStepIndex + 1);
+    const showError = (message: string) => {
+        setSaveError(message);
+        console.warn('[TrekkEZ Plan]', message);
+        // Native Alert is not shown on React Native Web: explicitly show the error.
+        if (Platform.OS === 'web') {
+            if (typeof window !== 'undefined') window.alert(`TrekkEZ Plan: ${message}`);
         } else {
-            router.back();
+            Alert.alert('TrekkEZ Plan', message);
         }
+    };
+    const savePlan = async () => {
+        if (saving) return;
+        if (!selectedRouteId) { showError('Không có tuyến đường thật. Cần tạo/lưu Route trước khi tạo Plan.'); return; }
+        if (!planName.trim()) { showError('Vui lòng nhập tên kế hoạch.'); return; }
+        if (hasTeam === 'YES' && !selectedTeamId) { showError('Hãy chọn Team có thật.'); return; }
+        if (hasTeam === 'NO' && isRandomMatchmaking === 'YES') { showError('Chưa hỗ trợ tạo Team mới qua wizard này. Hãy chọn NO cho Random Matchmaking.'); return; }
+        const startAt = `${dateBegin} ${timeBegin}`;
+        const expectedReturnAt = `${dateEnd} ${timeEnd}`;
+        const invalid = validateTripWindow(startAt, expectedReturnAt);
+        if (invalid) { showError(invalid); return; }
+        setSaving(true); setSaveError('');
+        try {
+            const session = await getAuthSession();
+            if (!session?.userId) throw new Error('Vui lòng đăng nhập.');
+            const id = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+                const r = Math.floor(Math.random() * 16);
+                return (c === 'x' ? r : (r & 3 | 8)).toString(16);
+            });
+            const difficultyLevel: TripPlan['difficulty'] =
+                difficulty === 'CHILL' || difficulty === 'EASY' ? 'easy'
+                : difficulty === 'HARD' || difficulty === 'CHALLENGE' ? 'hard' : 'moderate';
+            const selectedRequiredItems = flatEquipmentList.filter((i) => selectedItems.includes(i.name))
+                .map((i) => ({ id: i.id, categoryId: itemCategories.find((c) => c.name === i.category)?.id || '', label: i.name, custom: false }));
+            const plan: TripPlan = {
+                id, routeId: selectedRouteId, title: planName.trim(), createdAt: new Date().toISOString(),
+                startAt, expectedReturnAt, difficulty: difficultyLevel, members: '',
+                notes: [description.trim(), noteContent.trim()].filter(Boolean).join('\n'),
+                checklist: selectedRequiredItems.map((i) => ({ id: i.id, label: i.label, checked: false })),
+                status: 'planned', ownerId: session.userId,
+                mode: hasTeam === 'YES' ? 'team' : 'personal',
+                teamId: hasTeam === 'YES' ? selectedTeamId : undefined,
+                requiredItems: selectedRequiredItems,
+            };
+            await createRemotePlan(plan);
+            setCurrentStepIndex(WIZARD_STEPS.length - 1);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            console.error('[TrekkEZ Plan] Save failed:', message);
+            showError(message);
+        }
+        finally { setSaving(false); }
+    };
+    const goNext = () => {
+        if (step === 'CHOOSE_ROUTE' && !selectedRouteId) {
+            showError('Chưa có Route đã lưu trên Supabase. Tạo Plan cần một Route thật; màn hình Make a Route hiện chưa hỗ trợ lưu Route.');
+            return;
+        }
+        if (step === 'NOTE') { void savePlan(); return; }
+        if (currentStepIndex < WIZARD_STEPS.length - 1) setCurrentStepIndex((n) => n + 1);
+        else router.back();
     };
 
     const goBack = () => {
@@ -297,6 +381,11 @@ export default function MakeAPlanScreen() {
                             <Text style={styles.newRouteText}>New route ?</Text>
                         </TouchableOpacity>
 
+                        {sortedRoutes.length === 0 ? (
+                            <Text style={{ color: '#B91C1C', marginVertical: 12 }}>
+                                Chưa có Route đã lưu. Cần một Route thật trên Supabase trước khi tạo Plan.
+                            </Text>
+                        ) : null}
                         {sortedRoutes.map((route) => {
                             const isSelected = selectedRouteId === route.id;
                             return (
@@ -477,7 +566,7 @@ export default function MakeAPlanScreen() {
                         ) : (
                             <View style={styles.inputGroupContainer}>
                                 <Text style={styles.inputLabel}>CHOOSE A TEAM</Text>
-                                {MOCK_TEAMS.map((team) => (
+                                {availableTeams.map((team) => (
                                     <TouchableOpacity
                                         key={team.id}
                                         style={[styles.teamSelectCard, selectedTeamId === team.id && styles.teamSelectCardActive]}
@@ -589,11 +678,12 @@ export default function MakeAPlanScreen() {
                 )}
 
                 <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+                    {saveError ? <Text style={{ color: '#B91C1C', marginBottom: 12 }} selectable>{saveError}</Text> : null}
                     {renderStepContent()}
                 </ScrollView>
 
                 <View style={styles.bottomBar}>
-                    <PrimaryButton title={step === 'FINISH' ? 'Finish' : 'Continue'} onPress={goNext} />
+                    <PrimaryButton title={saving ? 'Saving...' : step === 'FINISH' ? 'Finish' : 'Continue'} onPress={goNext} />
                 </View>
             </KeyboardAvoidingView>
 
@@ -658,7 +748,7 @@ export default function MakeAPlanScreen() {
                                 handleAddItemToCategory(activeCategoryForSearch.name, cleanQuery);
                             }}
                         >
-                            <Octicons name="plus" size={16} color="#3B82F6" />
+                            <Octicons name="plus" size={16} color="#63c7ff" />
                             <Text style={styles.addNewItemText}>ADD "{cleanQuery}"</Text>
                         </TouchableOpacity>
                     );
@@ -703,7 +793,6 @@ const styles = StyleSheet.create({
     flex1: { flex: 1 },
     container: { flex: 1, backgroundColor: '#F8FAFC' },
 
-    /* Header Bar đồng bộ với PostScreen */
     headerBar: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -818,25 +907,33 @@ const styles = StyleSheet.create({
         paddingHorizontal: 16,
         paddingVertical: 8,
         borderRadius: 20,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     moreBtnText: {
         fontFamily: 'GoogleSans-Bold',
         fontSize: 13,
         color: '#475569',
+        includeFontPadding: false,
+        textAlignVertical: 'center',
     },
     modalPill: {
         backgroundColor: '#FFFFFF',
         paddingHorizontal: 16,
         paddingVertical: 8,
         borderRadius: 20,
+        justifyContent: 'center',        // Căn giữa theo chiều dọc
+        alignItems: 'center',            // Căn giữa theo chiều ngang
     },
     modalPillSelected: {
-        backgroundColor: '#3B82F6',
+        backgroundColor: '#207BFB',
     },
     modalPillText: {
         fontFamily: 'GoogleSans-Bold',
         fontSize: 13,
         color: '#64748B',
+        includeFontPadding: false,       // Bỏ padding mặc định của font Android
+        textAlignVertical: 'center',     // Căn giữa dòng chữ
     },
     modalPillTextSelected: {
         color: '#FFFFFF',
@@ -846,9 +943,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
         gap: 8,
-        backgroundColor: 'transparent',
-        borderWidth: 1.5,
-        borderColor: '#3B82F6',
+        backgroundColor: '#ffffff',
         borderRadius: 20,
         paddingVertical: 10,
         paddingHorizontal: 16,
@@ -858,7 +953,7 @@ const styles = StyleSheet.create({
     addNewItemText: {
         fontFamily: 'GoogleSans-Bold',
         fontSize: 13,
-        color: '#3B82F6',
+        color: '#63c7ff',
         includeFontPadding: false,
         textAlignVertical: 'center',
     },

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
     StyleSheet,
     View,
@@ -11,8 +11,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Octicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
+import { loadPlanCards, loadRouteCards } from '../../api/integration/newui-gateway';
 import ExpandableCard from '../../components/ExpandableCard';
+import SearchBarHeader from '../../components/SearchBarHeader';
 
 // =====================================================================
 // TYPES & DATA MODELS
@@ -79,10 +81,36 @@ export default function PlanScreen() {
     // -----------------------------------------------------------------
     // STATES MANAGEMENT
     // -----------------------------------------------------------------
-    const [plans, setPlans] = useState<PlanItem[]>(INITIAL_PLANS);
-    const [routes, setRoutes] = useState<PlanItem[]>(INITIAL_ROUTES);
-    const [isLoading, setIsLoading] = useState<boolean>(false);
+    const [plans, setPlans] = useState<PlanItem[]>([]);
+    const [routes, setRoutes] = useState<PlanItem[]>([]);
+    const [isLoading, setIsLoading] = useState<boolean>(true);
+    const [loadError, setLoadError] = useState('');
+    const refresh = useCallback(async () => {
+        setIsLoading(true);
+        setLoadError('');
+        try {
+            const [planResult, routeResult] = await Promise.allSettled([loadPlanCards(), loadRouteCards()]);
+            setPlans(planResult.status === 'fulfilled' ? planResult.value : []);
+            setRoutes(routeResult.status === 'fulfilled' ? routeResult.value : []);
+            const errors: string[] = [];
+            if (planResult.status === 'rejected') {
+                errors.push(`Plan: ${planResult.reason instanceof Error ? planResult.reason.message : String(planResult.reason)}`);
+            }
+            if (routeResult.status === 'rejected') {
+                errors.push(`Route: ${routeResult.reason instanceof Error ? routeResult.reason.message : String(routeResult.reason)}`);
+            }
+            if (errors.length) {
+                console.warn('[TrekkEZ Plan] Partial load:', errors.join(' | '));
+                setLoadError(errors.join(' | '));
+            }
+        } catch (error) {
+            setLoadError(error instanceof Error ? error.message : String(error));
+        } finally { setIsLoading(false); }
+    }, []);
+    useFocusEffect(useCallback(() => { void refresh(); }, [refresh]));
 
+    const [isSearchActive, setIsSearchActive] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
     // Navigation & Sort States
     const [subTab, setSubTab] = useState<SubTabType>('PLAN');
     const [planSortBy, setPlanSortBy] = useState<SortOption>('name');
@@ -117,7 +145,14 @@ export default function PlanScreen() {
     }, [rawList, currentSortBy]);
 
     // Tự động kiểm tra trạng thái rỗng từ dữ liệu thực tế
-    const isEmpty = sortedList.length === 0;
+    const visibleItems = useMemo(() => {
+        const query = searchQuery.trim().toLocaleLowerCase();
+        return query ? sortedList.filter(item =>
+            item.title.toLocaleLowerCase().includes(query) ||
+            item.details?.toLocaleLowerCase().includes(query)
+        ) : sortedList;
+    }, [sortedList, searchQuery]);
+    const isEmpty = visibleItems.length === 0;
 
     const handleSelectSort = (option: SortOption) => {
         if (subTab === 'PLAN') {
@@ -135,14 +170,15 @@ export default function PlanScreen() {
                 contentContainerStyle={styles.scrollContent}
             >
                 {/* --- HEADER BAR --- */}
-                <View style={styles.headerBar}>
-                    <Text style={styles.headerTitle}>PLAN</Text>
-                    <View style={styles.headerRightBtns}>
-                        <TouchableOpacity style={styles.circleHeaderBtn} activeOpacity={0.7}>
-                            <Octicons name="search" size={18} color="#0F172A" />
-                        </TouchableOpacity>
-                    </View>
-                </View>
+                <SearchBarHeader
+                    title="PLAN"
+                    placeholder={subTab === 'PLAN' ? 'Search plans...' : 'Search routes...'}
+                    isSearching={isSearchActive}
+                    searchQuery={searchQuery}
+                    onSearchQueryChange={setSearchQuery}
+                    onStartSearch={() => setIsSearchActive(true)}
+                    onCancelSearch={() => { setIsSearchActive(false); setSearchQuery(''); }}
+                />
 
                 {/* --- ACTION CARDS --- */}
                 <View style={styles.actionCardsRow}>
@@ -220,6 +256,7 @@ export default function PlanScreen() {
                     </View>
                 )}
 
+                {loadError ? <Text style={{ color: '#B91C1C', marginVertical: 12 }} onPress={() => { void refresh(); }}>{loadError} (tap to retry)</Text> : null}
                 {/* --- MAIN CONTENT AREA --- */}
                 {isLoading ? (
                     <View style={styles.loadingContainer}>
@@ -231,7 +268,7 @@ export default function PlanScreen() {
                             <Octicons name="smiley" size={48} color="#94A3B8" />
                         </View>
                         <Text style={styles.emptyTitle}>
-                            {subTab === 'PLAN' ? 'You currently have no plans !' : 'You currently have no route !'}
+                            {searchQuery.trim() ? 'No matching result found' : subTab === 'PLAN' ? 'You currently have no plans !' : 'You currently have no route !'}
                         </Text>
                         <Text style={styles.emptySubtitle}>
                             {subTab === 'PLAN'
@@ -241,7 +278,7 @@ export default function PlanScreen() {
                     </View>
                 ) : (
                     <View style={styles.listContainer}>
-                        {sortedList.map((item) => (
+                        {visibleItems.map((item) => (
                             <ExpandableCard
                                 key={item.id}
                                 id={item.id}
@@ -249,16 +286,15 @@ export default function PlanScreen() {
                                 isOwnedByYou={item.isOwnedByYou}
                                 headerColor={item.color}
                                 defaultExpanded={false}
+                                onHeaderPress={(id) => router.push({ pathname: subTab === 'PLAN' ? '/manage-plan' : '/manage-route', params: { id } })}
                             >
-                                {item.details ? (
-                                    <View style={styles.cardContentWrapper}>
-                                        <Text style={styles.cardDetailText}>{item.details}</Text>
-                                        <View style={styles.cardMetaRow}>
-                                            <Text style={styles.cardMetaText}>📅 Khởi hành: {item.startDate}</Text>
-                                            <Text style={styles.cardMetaText}>🕒 Tạo lúc: {item.createdAt}</Text>
-                                        </View>
+                                <View style={styles.cardContentWrapper}>
+                                    {item.details ? <Text style={styles.cardDetailText}>{item.details}</Text> : null}
+                                    <View style={styles.cardMetaRow}>
+                                        <Text style={styles.cardMetaText}>📅 Khởi hành: {item.startDate || 'Chưa có ngày'}</Text>
+                                        <Text style={styles.cardMetaText}>🕒 Tạo lúc: {item.createdAt || 'Chưa có ngày'}</Text>
                                     </View>
-                                ) : null}
+                                </View>
                             </ExpandableCard>
                         ))}
                     </View>

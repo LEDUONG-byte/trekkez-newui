@@ -1,5 +1,6 @@
-import React from 'react';
-import { Tabs } from 'expo-router';
+import React, { useEffect, useState } from 'react';
+import { Tabs, router } from 'expo-router';
+import { getAuthSession, authClient } from '../../api/services/auth/auth-session';
 import { StyleSheet, View, Platform, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Octicons } from '@expo/vector-icons';
@@ -7,8 +8,39 @@ import { Octicons } from '@expo/vector-icons';
 import PeopleFill from '../../assets/icons/PeopleFill';
 
 export default function TabLayout() {
+    const [authReady, setAuthReady] = useState(false);
+    const [authorized, setAuthorized] = useState(false);
+    useEffect(() => {
+        let active = true;
+        const verify = async () => {
+            try {
+                const session = await getAuthSession();
+                if (!active) return;
+                const ok = Boolean(session?.accessToken && session?.userId);
+                setAuthorized(ok);
+                setAuthReady(true);
+                if (!ok) router.replace('/login');
+            } catch (error) {
+                console.warn('AUTH_CHECK:', error);
+                if (!active) return;
+                setAuthorized(false);
+                setAuthReady(true);
+                router.replace('/login');
+            }
+        };
+        void verify();
+        const { data: { subscription } } = authClient.auth.onAuthStateChange((_event, session) => {
+            if (!active) return;
+            const ok = Boolean(session?.access_token && session?.user?.id);
+            setAuthorized(ok);
+            if (!ok) router.replace('/login');
+        });
+        return () => { active = false; subscription.unsubscribe(); };
+    }, []);
     const insets = useSafeAreaInsets();
     const bottomMargin = Math.max(insets.bottom + 20, 16);
+
+    if (!authReady || !authorized) return null;
 
     return (
         <Tabs

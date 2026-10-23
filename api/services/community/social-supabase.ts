@@ -373,6 +373,29 @@ export async function setUserFollowing(
     );
   }
 
+  // Do not make the Follow button look successful until Supabase confirms
+  // the relationship really exists (or has been removed) for this viewer.
+  const verified = await supabaseRequest(
+    `/rest/v1/user_follows?follower_id=eq.${encodeURIComponent(auth.userId)}` +
+      `&following_id=eq.${encodeURIComponent(followingUserId)}` +
+      `&select=follower_id,following_id&limit=1`,
+    {
+      accessToken: auth.accessToken,
+      expectedUserId: auth.userId,
+    },
+  );
+  const exists = Array.isArray(verified) && verified.some(
+    (row: { follower_id?: string; following_id?: string }) =>
+      row.follower_id === auth.userId && row.following_id === followingUserId,
+  );
+  if (exists !== following) {
+    throw new Error(
+      following
+        ? 'Supabase chưa xác nhận bạn đã theo dõi người này.'
+        : 'Supabase chưa xác nhận đã bỏ theo dõi người này.',
+    );
+  }
+
   const stateChanged =
     previousFollowing === undefined || previousFollowing !== following;
 

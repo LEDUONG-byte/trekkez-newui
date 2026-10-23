@@ -12,6 +12,8 @@ export type TeamCard = {
   membersCount: number;
   description?: string;
   createdAt: string;
+  isJoined: boolean;
+  allowMatchmaking: boolean;
 };
 export type PlanCard = {
   id: string;
@@ -34,6 +36,8 @@ export type HomePostCard = {
   isLiked: boolean;
   isBookmarked: boolean;
   isFollowing?: boolean;
+  authorId?: string;
+  authorIdentityVerified?: boolean;
 };
 export type HomeTeamCard = {
   itemType: 'TEAM';
@@ -62,6 +66,8 @@ export function teamToCard(team: Team): TeamCard {
     membersCount: team.memberCount,
     description: team.description,
     createdAt: isoDay(team.createdAt),
+    isJoined: team.joined || team.mine,
+    allowMatchmaking: team.allowMatchmaking !== false,
   };
 }
 
@@ -96,6 +102,8 @@ export function postToHomeCard(post: CommunityPost): HomePostCard {
     itemType: 'POST',
     id: post.id,
     username: post.author,
+    authorId: post.authorId,
+    authorIdentityVerified: post.authorIdentityVerified,
     images: post.image ? [post.image] : [],
     tags: post.tag ? [post.tag] : [],
     caption: post.content || post.title,

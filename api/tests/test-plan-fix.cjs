@@ -1,0 +1,18 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const root = path.resolve(__dirname, '../..');
+const read = (f) => fs.readFileSync(path.join(root, f), 'utf8');
+const gateway = read('api/integration/newui-gateway.ts');
+const planUI = read('app/makeaplan.tsx');
+const planTab = read('app/(tabs)/plan.tsx');
+const planAPI = read('api/services/plan/plan-team-supabase.ts');
+assert.match(gateway, /Promise\.allSettled\(/);
+assert.match(gateway, /Không tải được Route từ Supabase/);
+assert.match(planUI, /step === 'CHOOSE_ROUTE' && !selectedRouteId/);
+assert.match(planUI, /window\.alert/);
+assert.match(planUI, /await createRemotePlan\(plan\)/);
+assert.match(planTab, /Promise\.allSettled\(/);
+assert.match(planAPI, /const confirmed = await getAllSupabaseRows<RemotePlanRow>/);
+assert.match(planAPI, /Checklist status unavailable/);
+console.log('PASS: Plan patch structural smoke checks; remote Supabase not tested');

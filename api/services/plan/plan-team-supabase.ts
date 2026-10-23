@@ -171,7 +171,9 @@ export async function createRemotePlan(plan: TripPlan): Promise<TripPlan> {
     throw new Error("Hãy chọn nhóm cho kế hoạch.");
   }
 
-  const data = await supabaseRequest("/rest/v1/team_plans", {
+  let data: unknown;
+  try {
+    data = await supabaseRequest("/rest/v1/team_plans", {
     method: "POST",
     accessToken: auth.accessToken,
     expectedUserId: auth.userId,
@@ -198,19 +200,25 @@ export async function createRemotePlan(plan: TripPlan): Promise<TripPlan> {
         required_items: plan.requiredItems || [],
       },
     ],
-  });
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Không thể lưu Plan lên Supabase (team_plans): ${message}`);
+  }
 
   const row = Array.isArray(data) ? (data[0] as RemotePlanRow | undefined) : undefined;
-
-  if (row) {
+  if (row?.id === plan.id) {
     return buildTripPlan(row);
   }
 
-  return {
-    ...plan,
-    ownerId: auth.userId,
-    mode,
-  };
+  // A successful HTTP response without a returned row is not proof of a saved plan.
+  // Verify it with a subsequent read instead of incorrectly displaying FINISH.
+  const confirmed = await getAllSupabaseRows<RemotePlanRow>(
+    `/rest/v1/team_plans?id=eq.${encodeURIComponent(plan.id)}&owner_id=eq.${encodeURIComponent(auth.userId)}&select=*`,
+    { accessToken: auth.accessToken, expectedUserId: auth.userId },
+  );
+  if (confirmed[0]) return buildTripPlan(confirmed[0]);
+  throw new Error('Supabase chưa xác nhận đã lưu Plan. Kiểm tra quyền RLS/SELECT bảng team_plans.');
 }
 
 export async function createTeamForPlan(options: {
@@ -279,11 +287,17 @@ export async function getRemotePlans(expectedUserId?: string): Promise<TripPlan[
     { accessToken: auth.accessToken, expectedUserId: auth.userId },
   );
   if (rows.length === 0) return [];
-  const statusRows = await getAllSupabaseRows<RemoteStatusRow>(
-    `/rest/v1/team_plan_item_status?user_id=eq.${encodeURIComponent(auth.userId)}` +
-      `&select=plan_id,item_id,user_id,checked,updated_at`,
-    { accessToken: auth.accessToken, expectedUserId: auth.userId },
-  );
+  let statusRows: RemoteStatusRow[] = [];
+  try {
+    statusRows = await getAllSupabaseRows<RemoteStatusRow>(
+      `/rest/v1/team_plan_item_status?user_id=eq.${encodeURIComponent(auth.userId)}` +
+        `&select=plan_id,item_id,user_id,checked,updated_at`,
+      { accessToken: auth.accessToken, expectedUserId: auth.userId },
+    );
+  } catch (error) {
+    // Keep saved Plan cards visible if only the optional checklist-status read fails.
+    console.warn('[TrekkEZ Plan] Checklist status unavailable:', error instanceof Error ? error.message : String(error));
+  }
   const byPlan = new Map<string, RemoteStatusRow[]>();
   for (const status of statusRows) {
     const list = byPlan.get(status.plan_id) ?? [];
