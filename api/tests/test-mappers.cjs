@@ -15,9 +15,11 @@ new Function('exports', 'require', compiled.outputText)(moduleExports, () => { t
 const team = {
   id:'t1', ownerId:'u1', name:'Test Team', description:'Outdoor', memberCount:3,
   mine:true, joined:true, createdAt:'2026-10-22T12:00:00Z', allowMatchmaking:true,
+  imageUrl:'https://example.test/team.png',
 };
 assert.deepEqual(moduleExports.teamToCard(team), {
-  id:'t1', name:'Test Team', isOwnedByYou:true, color:'#BAE6FD', membersCount:3,
+  id:'t1', name:'Test Team', isOwnedByYou:true, imageUrl:'https://example.test/team.png',
+  color:'#BAE6FD', membersCount:3,
   description:'Outdoor', createdAt:'2026-10-22', isJoined:true, allowMatchmaking:true,
 });
 const plan = {

@@ -25,6 +25,7 @@ export type TeamSortOption = 'name' | 'members' | 'creation date';
 export interface TeamItem {
     id: string;
     name: string;
+    imageUrl?: string;
     isOwnedByYou: boolean;
     isJoined?: boolean;
     allowMatchmaking?: boolean;
@@ -249,6 +250,7 @@ export default function TeamScreen() {
                                     key={team.id}
                                     id={team.id}
                                     title={team.name}
+                                    imageUrl={team.imageUrl}
                                     isOwnedByYou={team.isOwnedByYou}
                                     headerColor={headerColor}
                                     defaultExpanded={false}

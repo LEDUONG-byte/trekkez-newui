@@ -12,7 +12,7 @@
 - Google OAuth thiếu cấu hình OAuth callback/ID token.
 - Schema bài đăng hiện chỉ có một trường `image` và chưa có trường quyền xem; bài đăng lưu một ảnh bìa, còn chế độ “Followers only” sẽ bị chặn để không vô tình công khai bài riêng tư.
 - Chỉnh sửa Route chưa ghi ngược lên Supabase; trang xem Route chỉ đọc dữ liệu đã lưu.
-- Team chat vẫn là giao diện mẫu, chưa có service/API chat. Find Team map vẫn cần tọa độ địa lý trong dữ liệu Team; các địa điểm dạng chữ chưa đủ để đặt marker chính xác.
+- Team chat vẫn là giao diện mẫu, chưa có service/API chat. Find Team map tải các Team công khai có Team Plan gắn Route và đặt marker theo waypoint đầu tiên; cần chạy migration `api/sql/20261023_enable_discoverable_team_plan_search.sql` để RLS cho phép người dùng đã đăng nhập tìm kiếm.
 - Quyền RLS, schema, RPC và Storage cần được xác minh trên Supabase staging bằng tài khoản test.
 - Mapbox/React Native Maps phải test trên native APK, web không thay thế được.
 - Các tính năng thiếu không đánh dấu PASS chỉ vì UI mở được.

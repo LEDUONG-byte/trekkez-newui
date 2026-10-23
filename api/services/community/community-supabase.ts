@@ -337,18 +337,41 @@ export async function getRemoteCommunityComments(
     },
   );
 
+  type CommentProfileRow = {
+    id: string;
+    full_name: string | null;
+    username: string | null;
+    avatar_url: string | null;
+  };
+  const commenterIds = [...new Set(rows.map((row) => row.user_id).filter((id): id is string => Boolean(id)))];
+  const profilesById = new Map<string, CommentProfileRow>();
+  if (commenterIds.length > 0) {
+    try {
+      const profiles = await getAllSupabaseRows<CommentProfileRow>(
+        `/rest/v1/profiles?id=in.(${commenterIds.map(encodeURIComponent).join(",")})&select=id,full_name,username,avatar_url`,
+        {
+          accessToken: auth.accessToken,
+          expectedUserId: auth.userId,
+        },
+      );
+      profiles.forEach((profile) => profilesById.set(profile.id, profile));
+    } catch (error) {
+      if (__DEV__) console.warn("[TrekkEZ Comments] Could not load commenter profiles; using names stored with comments.", error);
+    }
+  }
+
   return rows.map(
-    (row): CommunityComment => ({
-      id: row.id,
-
-      name: row.name,
-
-      text: row.text,
-
-      time: row.time_text,
-
-      userId: row.user_id ?? undefined,
-    }),
+    (row): CommunityComment => {
+      const profile = row.user_id ? profilesById.get(row.user_id) : undefined;
+      return {
+        id: row.id,
+        name: profile?.full_name?.trim() || profile?.username?.trim() || row.name,
+        text: row.text,
+        time: row.created_at || row.time_text,
+        userId: row.user_id ?? undefined,
+        avatarUrl: profile?.avatar_url || undefined,
+      };
+    },
   );
 }
 

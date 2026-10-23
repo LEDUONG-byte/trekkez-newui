@@ -11,6 +11,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Octicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { newUiAuth } from '../api/integration/newui-gateway';
 
 export default function SettingScreen() {
     const router = useRouter();
@@ -27,15 +28,25 @@ export default function SettingScreen() {
         // Open Privacy Policy
     };
 
+    const performLogout = async () => {
+        try {
+            await newUiAuth.signOut();
+            router.replace('/login');
+        } catch (error) {
+            Alert.alert(
+                'Could not log out',
+                error instanceof Error ? error.message : String(error),
+            );
+        }
+    };
+
     const handleLogout = () => {
         Alert.alert('Log Out', 'Are you sure you want to log out?', [
             { text: 'Cancel', style: 'cancel' },
             {
                 text: 'Log Out',
                 style: 'destructive',
-                onPress: () => {
-                    // Logout logic
-                },
+                onPress: () => { void performLogout(); },
             },
         ]);
     };

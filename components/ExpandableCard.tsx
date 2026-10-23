@@ -7,6 +7,7 @@ import {
     LayoutAnimation,
     Platform,
     UIManager,
+    Image,
 } from 'react-native';
 import { Octicons } from '@expo/vector-icons';
 
@@ -20,6 +21,7 @@ if (
 export interface ExpandableCardProps {
     id: string;
     title: string;
+    imageUrl?: string;
     iconName?: keyof typeof Octicons.glyphMap; // Tên Icon linh hoạt từ DB hoặc props
     isOwnedByYou?: boolean;
     headerColor?: string;
@@ -32,6 +34,7 @@ export interface ExpandableCardProps {
 export default function ExpandableCard({
                                            id,
                                            title,
+                                           imageUrl,
                                            iconName = 'bookmark',
                                            isOwnedByYou = true,
                                            headerColor = '#FFFFFF',
@@ -69,7 +72,11 @@ export default function ExpandableCard({
             >
                 <View style={styles.headerLeft}>
                     <View style={styles.circleIcon}>
-                        <Octicons name={iconName} size={16} color="#0F172A" />
+                        {imageUrl ? (
+                            <Image source={{ uri: imageUrl }} style={styles.headerImage} />
+                        ) : (
+                            <Octicons name={iconName} size={16} color="#0F172A" />
+                        )}
                     </View>
                     <Text style={styles.headerTitle} numberOfLines={1}>
                         {title}
@@ -142,9 +149,14 @@ const styles = StyleSheet.create({
         width: 32,
         height: 32,
         borderRadius: 16,
+        overflow: 'hidden',
         backgroundColor: '#F1F5F9',
         justifyContent: 'center',
         alignItems: 'center',
+    },
+    headerImage: {
+        width: '100%',
+        height: '100%',
     },
     headerTitle: {
         fontFamily: 'GoogleSans-Bold',

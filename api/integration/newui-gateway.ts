@@ -25,6 +25,90 @@ async function requireViewer() {
   return { userId: session.userId, token: session.accessToken };
 }
 
+export type FindableTeamPlan = {
+  id: string;
+  planName: string;
+  teamId: string;
+  teamName: string;
+  difficulty: string;
+  membersCount: number;
+  maxMembers: number;
+  startDate: string;
+  startCoordinate: [number, number];
+  avatarUrl: string | null;
+  isOwnedByYou: boolean;
+  isJoined: boolean;
+};
+
+function isValidLngLat(longitude: unknown, latitude: unknown): boolean {
+  return typeof longitude === 'number' && Number.isFinite(longitude) &&
+    Math.abs(longitude) <= 180 && typeof latitude === 'number' &&
+    Number.isFinite(latitude) && Math.abs(latitude) <= 90;
+}
+
+export async function loadFindableTeamPlans(): Promise<FindableTeamPlan[]> {
+  const viewer = await requireViewer();
+  const [teams, plans] = await Promise.all([
+    getRemoteTeams(viewer.userId),
+    getRemotePlans(viewer.userId),
+  ]);
+  const discoverableTeams = new Map(
+    teams
+      .filter((team) => team.allowMatchmaking !== false)
+      .map((team) => [team.id, team]),
+  );
+  const candidatePlans = plans.filter(
+    (plan) => plan.mode === 'team' && Boolean(plan.teamId && plan.routeId) && discoverableTeams.has(plan.teamId!),
+  );
+  const routeIds = [...new Set(candidatePlans.map((plan) => plan.routeId))];
+  if (routeIds.length === 0) return [];
+
+  const waypoints = await getAllSupabaseRows<{
+    route_id: string;
+    latitude: number | string | null;
+    longitude: number | string | null;
+    order_index: number | null;
+  }>(
+    `/rest/v1/waypoints?route_id=in.(${routeIds.map(encodeURIComponent).join(',')})&select=route_id,latitude,longitude,order_index&order=order_index.asc`,
+    { accessToken: viewer.token, expectedUserId: viewer.userId },
+  );
+  const firstWaypointByRoute = new Map<string, [number, number]>();
+  for (const point of waypoints) {
+    if (firstWaypointByRoute.has(point.route_id)) continue;
+    if (point.longitude === null || point.latitude === null) continue;
+    const longitude = Number(point.longitude);
+    const latitude = Number(point.latitude);
+    if (isValidLngLat(longitude, latitude)) {
+      firstWaypointByRoute.set(point.route_id, [longitude, latitude]);
+    }
+  }
+
+  return candidatePlans.flatMap((plan) => {
+    const team = plan.teamId ? discoverableTeams.get(plan.teamId) : undefined;
+    const startCoordinate = firstWaypointByRoute.get(plan.routeId);
+    if (!team || !startCoordinate) return [];
+    return [{
+      id: plan.id,
+      planName: plan.title,
+      teamId: team.id,
+      teamName: team.name,
+      difficulty: plan.difficulty || 'moderate',
+      membersCount: team.memberCount,
+      maxMembers: team.maxMembers ?? 20,
+      startDate: plan.startAt,
+      startCoordinate,
+      avatarUrl: team.imageUrl || null,
+      isOwnedByYou: team.mine,
+      isJoined: team.joined || team.mine,
+    }];
+  });
+}
+
+export async function getCurrentViewerId(): Promise<string> {
+  const viewer = await requireViewer();
+  return viewer.userId;
+}
+
 export const newUiAuth = {
   signInWithEmail,
   signInWithGoogleToken,

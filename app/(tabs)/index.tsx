@@ -11,7 +11,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Octicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
-import { loadExploreFeed, loadFollowingAuthorIds } from '../../api/integration/newui-gateway';
+import { getCurrentViewerId, loadExploreFeed, loadFollowingAuthorIds } from '../../api/integration/newui-gateway';
 import { setRemoteCommunityLike, setRemoteCommunitySave } from '../../api/services/community/community-supabase';
 import { setUserFollowing } from '../../api/services/community/social-supabase';
 
@@ -22,7 +22,7 @@ import SearchBarHeader from '../../components/SearchBarHeader';
 export type SubTabType = 'EXPLORE' | 'FOLLOWING';
 
 export type FeedItem =
-    | ({ itemType: 'POST'; id: string; authorId?: string; isFollowing?: boolean; authorIdentityVerified?: boolean } & PostCardProps)
+    | ({ itemType: 'POST'; id: string; authorId?: string; isFollowing?: boolean; authorIdentityVerified?: boolean; isOwnPost?: boolean } & PostCardProps)
     | ({ itemType: 'TEAM'; id: string; isFollowing?: boolean } & TeamPostCardProps);
 
 export default function HomeScreen() {
@@ -40,10 +40,16 @@ export default function HomeScreen() {
         setBusy(true);
         setFeedError('');
         try {
-            const [explore, authorIds] = await Promise.all([loadExploreFeed(), loadFollowingAuthorIds()]);
+            const [explore, authorIds, viewerId] = await Promise.all([
+                loadExploreFeed(),
+                loadFollowingAuthorIds(),
+                getCurrentViewerId(),
+            ]);
             const next = explore.map((item) => ({
                 ...item,
                 isFollowing: item.itemType === 'POST' && Boolean(item.authorId && authorIds.has(item.authorId)),
+                showFollowButton: item.itemType !== 'POST' || item.authorId !== viewerId,
+                isOwnPost: item.itemType === 'POST' && item.authorId === viewerId,
             })) as FeedItem[];
             setFeedItems(next);
             setFollowedAuthorIds(new Set(authorIds));
@@ -105,6 +111,7 @@ export default function HomeScreen() {
             setFeedError('Không tìm thấy tác giả để theo dõi.');
             return;
         }
+        if (item.isOwnPost) return;
         try {
             await setUserFollowing(item.authorId, !item.isFollowing);
             await refresh();

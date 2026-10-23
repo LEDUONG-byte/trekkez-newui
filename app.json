@@ -16,6 +16,7 @@
         "backgroundColor": "#79d3ff"
       },
       "package": "com.leduong232steam.trekkez2",
+      "softwareKeyboardLayoutMode": "resize",
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",

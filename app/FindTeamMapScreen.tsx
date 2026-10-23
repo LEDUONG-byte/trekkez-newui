@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import {
     StyleSheet,
     View,
@@ -7,6 +7,10 @@ import {
     Platform,
     Image,
     Alert,
+    ActivityIndicator,
+    FlatList,
+    Modal,
+    TextInput,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Octicons } from '@expo/vector-icons';
@@ -14,6 +18,8 @@ import { useRouter } from 'expo-router';
 
 import AppText from '../components/AppText';
 import PrimaryButton from '../components/PrimaryButton';
+import { loadFindableTeamPlans, type FindableTeamPlan } from '../api/integration/newui-gateway';
+import { requestTeamJoin } from '../api/services/team/team-join-request';
 
 let Mapbox: any = null;
 const MAPBOX_KEY = process.env.EXPO_PUBLIC_MAPBOX_KEY;
@@ -25,52 +31,54 @@ if (Platform.OS !== 'web') {
     }
 }
 
-// =====================================================================
-// MOCK DATA: Active recruiting teams
-// =====================================================================
-const ACTIVE_TEAMS = [
-    {
-        id: 'team_01',
-        planName: 'Ta Nang - Phan Dung Trekking',
-        teamName: 'Sixseven Team',
-        difficulty: 'EASY',
-        membersCount: 4,
-        maxMembers: 8,
-        startDate: 'Nov 15, 2026',
-        startCoordinate: [106.6882, 10.8225],
-        avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100',
-    },
-    {
-        id: 'team_02',
-        planName: 'Langbiang Peak Conquest',
-        teamName: 'Da Lat Hikers',
-        difficulty: 'MODERATE',
-        membersCount: 2,
-        maxMembers: 5,
-        startDate: 'Dec 20, 2026',
-        startCoordinate: [106.6950, 10.8280],
-        avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100',
-    },
-    {
-        id: 'team_03',
-        planName: 'Tri An Lake Camping',
-        teamName: 'Chill & Camp',
-        difficulty: 'EASY',
-        membersCount: 6,
-        maxMembers: 10,
-        startDate: 'Jan 05, 2027',
-        startCoordinate: [106.6800, 10.8150],
-        avatarUrl: null,
-    },
-];
-
 export default function FindTeamMapScreen() {
     const router = useRouter();
     const insets = useSafeAreaInsets();
     const cameraRef = useRef<any>(null);
 
-    const [selectedTeam, setSelectedTeam] = useState<typeof ACTIVE_TEAMS[0] | null>(null);
+    const [teams, setTeams] = useState<FindableTeamPlan[]>([]);
+    const [selectedTeam, setSelectedTeam] = useState<FindableTeamPlan | null>(null);
     const [imageLoadedMap, setImageLoadedMap] = useState<Record<string, boolean>>({});
+    const [isLoadingTeams, setIsLoadingTeams] = useState(true);
+    const [loadError, setLoadError] = useState('');
+    const [isSearchVisible, setIsSearchVisible] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [isJoining, setIsJoining] = useState(false);
+
+    const loadTeams = async () => {
+        setIsLoadingTeams(true);
+        setLoadError('');
+        try {
+            const results = await loadFindableTeamPlans();
+            setTeams(results);
+            if (results[0]) {
+                cameraRef.current?.setCamera({
+                    centerCoordinate: results[0].startCoordinate,
+                    zoomLevel: 6,
+                    animationDuration: 700,
+                });
+            }
+        } catch (error) {
+            setTeams([]);
+            setLoadError(error instanceof Error ? error.message : String(error));
+        } finally {
+            setIsLoadingTeams(false);
+        }
+    };
+
+    useEffect(() => {
+        void loadTeams();
+    }, []);
+
+    const filteredTeams = useMemo(() => {
+        const query = searchQuery.trim().toLocaleLowerCase();
+        if (!query) return teams;
+        return teams.filter((team) =>
+            team.teamName.toLocaleLowerCase().includes(query) ||
+            team.planName.toLocaleLowerCase().includes(query) ||
+            team.difficulty.toLocaleLowerCase().includes(query),
+        );
+    }, [teams, searchQuery]);
 
     // Scale Bar states
     const [currentZoom, setCurrentZoom] = useState<number>(13);
@@ -126,8 +134,9 @@ export default function FindTeamMapScreen() {
         }
     };
 
-    const handleSelectTeam = (team: typeof ACTIVE_TEAMS[0]) => {
+    const handleSelectTeam = (team: FindableTeamPlan) => {
         setSelectedTeam(team);
+        setIsSearchVisible(false);
 
         if (cameraRef.current) {
             cameraRef.current.setCamera({
@@ -143,13 +152,23 @@ export default function FindTeamMapScreen() {
         setSelectedTeam(null);
     };
 
-    const handleJoinRequest = () => {
-        Alert.alert('Success', `Join request sent to ${selectedTeam?.teamName}!`);
-        setSelectedTeam(null);
+    const handleJoinRequest = async () => {
+        if (!selectedTeam || isJoining || selectedTeam.isJoined || selectedTeam.isOwnedByYou) return;
+        setIsJoining(true);
+        try {
+            await requestTeamJoin(selectedTeam.teamId);
+            Alert.alert('Request sent', `Your request to join ${selectedTeam.teamName} has been sent.`);
+            setSelectedTeam(null);
+        } catch (error) {
+            Alert.alert('Could not request to join', error instanceof Error ? error.message : String(error));
+        } finally {
+            setIsJoining(false);
+        }
     };
 
     const handleSearchPress = () => {
-        // Xử lý tìm kiếm hoặc mở danh sách bộ lọc
+        setSearchQuery('');
+        setIsSearchVisible(true);
     };
 
     return (
@@ -170,7 +189,7 @@ export default function FindTeamMapScreen() {
                     <Mapbox.Camera
                         ref={cameraRef}
                         zoomLevel={13}
-                        centerCoordinate={[106.6882, 10.8225]}
+                        centerCoordinate={teams[0]?.startCoordinate ?? [106.6882, 10.8225]}
                         animationMode="flyTo"
                         animationDuration={1500}
                     />
@@ -178,14 +197,14 @@ export default function FindTeamMapScreen() {
                     <Mapbox.UserLocation visible={true} />
 
                     {/* Team Markers */}
-                    {ACTIVE_TEAMS.map((team) => {
+                    {teams.map((team) => {
                         const isSelected = selectedTeam?.id === team.id;
                         const isLoaded = !!imageLoadedMap[team.id];
 
                         return (
                             <Mapbox.PointAnnotation
-                                key={`${team.id}-${isSelected ? 'active' : 'idle'}-${isLoaded ? 'loaded' : 'raw'}`}
-                                id={`marker_${team.id}`}
+                                key={`${team.id}-${team.planName}-${isSelected ? 'active' : 'idle'}-${isLoaded ? 'loaded' : 'raw'}`}
+                                id={`marker_${team.teamId}_${team.id}`}
                                 coordinate={team.startCoordinate}
                                 onSelected={() => handleSelectTeam(team)}
                             >
@@ -271,6 +290,22 @@ export default function FindTeamMapScreen() {
                     </TouchableOpacity>
                 </View>
 
+                {isLoadingTeams ? (
+                    <View style={styles.statusCard}>
+                        <ActivityIndicator size="small" color="#0284C7" />
+                        <AppText style={styles.statusText}>Loading teams with planned routes…</AppText>
+                    </View>
+                ) : loadError ? (
+                    <TouchableOpacity style={styles.statusCard} onPress={() => { void loadTeams(); }}>
+                        <Octicons name="sync" size={16} color="#B91C1C" />
+                        <AppText style={styles.statusErrorText}>{loadError} · Tap to retry</AppText>
+                    </TouchableOpacity>
+                ) : teams.length === 0 ? (
+                    <View style={styles.statusCard}>
+                        <AppText style={styles.statusText}>No discoverable team plans with route locations yet.</AppText>
+                    </View>
+                ) : null}
+
                 {/* Floating Bottom Card */}
                 {selectedTeam && (
                     <View
@@ -329,13 +364,103 @@ export default function FindTeamMapScreen() {
                             </View>
 
                             <PrimaryButton
-                                title="Request to Join"
+                                title={isJoining ? 'Sending request...' : selectedTeam.isOwnedByYou ? 'Your Team' : selectedTeam.isJoined ? 'Already a member' : 'Request to Join'}
                                 onPress={handleJoinRequest}
+                                disabled={isJoining || selectedTeam.isJoined || selectedTeam.isOwnedByYou}
                             />
                         </View>
                     </View>
                 )}
             </SafeAreaView>
+
+            <Modal
+                visible={isSearchVisible}
+                animationType="slide"
+                transparent
+                onRequestClose={() => setIsSearchVisible(false)}
+            >
+                <View style={styles.searchBackdrop}>
+                    <View style={[styles.searchSheet, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+                        <View style={styles.searchHeader}>
+                            <AppText style={styles.searchTitle}>Find a team</AppText>
+                            <TouchableOpacity
+                                style={styles.closeSearchButton}
+                                onPress={() => setIsSearchVisible(false)}
+                            >
+                                <Octicons name="x" size={20} color="#334155" />
+                            </TouchableOpacity>
+                        </View>
+                        <View style={styles.searchInputWrapper}>
+                            <Octicons name="search" size={17} color="#64748B" />
+                            <TextInput
+                                style={styles.searchInput}
+                                placeholder="Search team or plan"
+                                placeholderTextColor="#94A3B8"
+                                value={searchQuery}
+                                onChangeText={setSearchQuery}
+                                autoFocus
+                                returnKeyType="search"
+                            />
+                            {searchQuery ? (
+                                <TouchableOpacity onPress={() => setSearchQuery('')}>
+                                    <Octicons name="x-circle-fill" size={16} color="#94A3B8" />
+                                </TouchableOpacity>
+                            ) : null}
+                        </View>
+                        {isLoadingTeams ? (
+                            <View style={styles.searchEmpty}>
+                                <ActivityIndicator color="#0284C7" />
+                                <AppText style={styles.searchEmptyText}>Loading teams...</AppText>
+                            </View>
+                        ) : loadError ? (
+                            <View style={styles.searchEmpty}>
+                                <AppText style={styles.searchErrorText}>{loadError}</AppText>
+                                <TouchableOpacity onPress={() => { void loadTeams(); }}>
+                                    <AppText style={styles.retryText}>Try again</AppText>
+                                </TouchableOpacity>
+                            </View>
+                        ) : (
+                            <FlatList
+                                data={filteredTeams}
+                                keyExtractor={(team) => team.id}
+                                keyboardShouldPersistTaps="handled"
+                                ListEmptyComponent={
+                                    <View style={styles.searchEmpty}>
+                                        <AppText style={styles.searchEmptyText}>
+                                            {teams.length === 0
+                                                ? 'No discoverable team plans with route locations yet.'
+                                                : 'No teams match your search.'}
+                                        </AppText>
+                                    </View>
+                                }
+                                renderItem={({ item }) => (
+                                    <TouchableOpacity
+                                        style={styles.searchResult}
+                                        activeOpacity={0.75}
+                                        onPress={() => handleSelectTeam(item)}
+                                    >
+                                        {item.avatarUrl ? (
+                                            <Image source={{ uri: item.avatarUrl }} style={styles.searchResultAvatar} />
+                                        ) : (
+                                            <View style={[styles.searchResultAvatar, styles.searchResultAvatarFallback]}>
+                                                <Octicons name="people" size={17} color="#0369A1" />
+                                            </View>
+                                        )}
+                                        <View style={styles.searchResultText}>
+                                            <AppText style={styles.searchResultTeam} numberOfLines={1}>{item.teamName}</AppText>
+                                            <AppText style={styles.searchResultPlan} numberOfLines={1}>{item.planName}</AppText>
+                                            <AppText style={styles.searchResultMeta}>
+                                                {item.membersCount}/{item.maxMembers} members · {item.startDate}
+                                            </AppText>
+                                        </View>
+                                        <Octicons name="chevron-right" size={16} color="#94A3B8" />
+                                    </TouchableOpacity>
+                                )}
+                            />
+                        )}
+                    </View>
+                </View>
+            </Modal>
         </View>
     );
 }
@@ -355,6 +480,134 @@ const styles = StyleSheet.create({
         fontFamily: 'GoogleSans-Medium',
         fontSize: 14,
         color: '#64748B',
+    },
+    statusCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        alignSelf: 'center',
+        gap: 10,
+        maxWidth: '90%',
+        marginTop: 12,
+        paddingHorizontal: 14,
+        paddingVertical: 10,
+        borderRadius: 14,
+        backgroundColor: '#FFFFFF',
+    },
+    statusText: {
+        color: '#475569',
+        fontSize: 12,
+        flexShrink: 1,
+    },
+    statusErrorText: {
+        color: '#B91C1C',
+        fontSize: 12,
+        flexShrink: 1,
+    },
+    searchBackdrop: {
+        flex: 1,
+        justifyContent: 'flex-end',
+        backgroundColor: 'rgba(15,23,42,0.35)',
+    },
+    searchSheet: {
+        height: '78%',
+        paddingHorizontal: 20,
+        paddingTop: 18,
+        backgroundColor: '#FFFFFF',
+        borderTopLeftRadius: 24,
+        borderTopRightRadius: 24,
+    },
+    searchHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 14,
+    },
+    searchTitle: {
+        color: '#0F172A',
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 19,
+    },
+    closeSearchButton: {
+        width: 36,
+        height: 36,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: 18,
+        backgroundColor: '#F1F5F9',
+    },
+    searchInputWrapper: {
+        height: 46,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        paddingHorizontal: 14,
+        marginBottom: 12,
+        borderRadius: 14,
+        backgroundColor: '#F1F5F9',
+    },
+    searchInput: {
+        flex: 1,
+        paddingVertical: 0,
+        color: '#0F172A',
+        fontSize: 14,
+    },
+    searchEmpty: {
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 10,
+        paddingHorizontal: 18,
+    },
+    searchEmptyText: {
+        color: '#64748B',
+        fontSize: 13,
+        textAlign: 'center',
+    },
+    searchErrorText: {
+        color: '#B91C1C',
+        fontSize: 13,
+        textAlign: 'center',
+    },
+    retryText: {
+        color: '#0284C7',
+        fontSize: 14,
+        fontFamily: 'GoogleSans-Bold',
+    },
+    searchResult: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        paddingVertical: 12,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: '#E2E8F0',
+    },
+    searchResultAvatar: {
+        width: 46,
+        height: 46,
+        borderRadius: 23,
+        backgroundColor: '#E0F2FE',
+    },
+    searchResultAvatarFallback: {
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    searchResultText: {
+        flex: 1,
+        gap: 3,
+    },
+    searchResultTeam: {
+        color: '#0F172A',
+        fontFamily: 'GoogleSans-Bold',
+        fontSize: 14,
+    },
+    searchResultPlan: {
+        color: '#475569',
+        fontFamily: 'GoogleSans-Medium',
+        fontSize: 12,
+    },
+    searchResultMeta: {
+        color: '#94A3B8',
+        fontSize: 11,
     },
 
     // Marker Styles (Khắc phục hoàn toàn lỗi hình vuông và lỗi cache)

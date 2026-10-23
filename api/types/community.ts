@@ -23,4 +23,5 @@ export type CommunityComment = {
   text: string;
   time: string;
   userId?: string;
+  avatarUrl?: string;
 };

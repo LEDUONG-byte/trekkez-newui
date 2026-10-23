@@ -8,6 +8,7 @@ export type TeamCard = {
   id: string;
   name: string;
   isOwnedByYou: boolean;
+  imageUrl: string;
   color: string;
   membersCount: number;
   description?: string;
@@ -62,6 +63,7 @@ export function teamToCard(team: Team): TeamCard {
     id: team.id,
     name: team.name,
     isOwnedByYou: team.mine,
+    imageUrl: team.imageUrl,
     color: team.mine ? '#BAE6FD' : '#FEF08A',
     membersCount: team.memberCount,
     description: team.description,

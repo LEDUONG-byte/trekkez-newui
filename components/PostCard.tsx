@@ -18,6 +18,7 @@ export interface PostData {
     avatar?: ImageSourcePropType | string;
     username?: string;
     isFollowing?: boolean;
+    showFollowButton?: boolean;
     onFollowPress?: () => void;
     images?: (ImageSourcePropType | string)[];
     tags?: string[];
@@ -43,6 +44,7 @@ export default function PostCard(props: PostCardProps) {
         avatar = data.avatar,
         username = data.username ?? 'user',
         isFollowing = data.isFollowing ?? false,
+        showFollowButton = data.showFollowButton ?? true,
         onFollowPress = data.onFollowPress,
         images = data.images ?? [],
         tags = data.tags ?? [],
@@ -98,15 +100,17 @@ export default function PostCard(props: PostCardProps) {
                     <Text style={styles.username}>@{username}</Text>
                 </View>
 
-                <TouchableOpacity
-                    style={[styles.followButton, following && styles.followingButton]}
-                    activeOpacity={0.7}
-                    onPress={handleFollow}
-                >
-                    <Text style={[styles.followText, following && styles.followingText]}>
-                        {following ? 'Following' : 'Follow'}
-                    </Text>
-                </TouchableOpacity>
+                {showFollowButton ? (
+                    <TouchableOpacity
+                        style={[styles.followButton, following && styles.followingButton]}
+                        activeOpacity={0.7}
+                        onPress={handleFollow}
+                    >
+                        <Text style={[styles.followText, following && styles.followingText]}>
+                            {following ? 'Following' : 'Follow'}
+                        </Text>
+                    </TouchableOpacity>
+                ) : null}
             </View>
 
             {/* Media Section: Image Carousel tràn sát 2 mép màn hình */}

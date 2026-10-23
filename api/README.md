@@ -55,3 +55,4 @@ Các test `*.cjs` mock Supabase; chúng không xác nhận cấu hình RLS, SQL 
 - Route save gồm nhiều request, chưa phải transaction nguyên tử; cleanup khi lỗi là best effort.
 - Activity chỉ đọc `activity_sessions` để tổng hợp Profile; không ghi GPS hoặc track points.
 - Mapbox/native runtime cần test trên build thiết bị; unit test không thay thế kiểm thử đó.
+- Find a Team cần các SELECT policy cho Team công khai, Plan nhóm gắn Route và waypoint; migration tương ứng nằm tại `api/sql/20261023_enable_discoverable_team_plan_search.sql`. Chạy migration trên Supabase sau khi xác nhận bảng đang bật RLS.
