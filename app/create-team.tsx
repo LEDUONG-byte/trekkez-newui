@@ -13,6 +13,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Octicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { uploadTeam, getRemoteTeam } from '../api/services/team/team-supabase';
 
 import ConfirmModal from '../components/ConfirmModal';
 import PrimaryButton from '../components/PrimaryButton';
@@ -35,6 +36,7 @@ export default function CreateTeamScreen() {
     const [maxMembers, setMaxMembers] = useState('8');
     const [isPublic, setIsPublic] = useState(true);
     const [selectedAvatar, setSelectedAvatar] = useState(AVATAR_PRESETS[0]);
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     // Error / Validation Modal
     const [errorModal, setErrorModal] = useState<{
@@ -47,7 +49,7 @@ export default function CreateTeamScreen() {
         content: '',
     });
 
-    const handleCreateTeam = () => {
+    const handleCreateTeam = async () => {
         const trimmedName = teamName.trim();
         if (!trimmedName) {
             setErrorModal({
@@ -68,13 +70,47 @@ export default function CreateTeamScreen() {
             return;
         }
 
-        router.replace({
-            pathname: '/manage-team',
-            params: {
-                id: `team_${Date.now()}`,
+        if (isSubmitting) return;
+        setIsSubmitting(true);
+        try {
+            const id = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (character) => {
+                const random = Math.floor(Math.random() * 16);
+                return (character === 'x' ? random : ((random & 0x3) | 0x8)).toString(16);
+            });
+            await uploadTeam({
+                id,
                 name: trimmedName,
-            },
-        });
+                description: description.trim(),
+                maxMembers: parsedMax,
+                allowMatchmaking: isPublic,
+                level: 'Tất cả cấp độ',
+                location: '',
+                routeName: '',
+                tripDate: '',
+                meetingPoint: '',
+                note: '',
+                imageUrl: selectedAvatar,
+            });
+            const createdTeam = await getRemoteTeam(id);
+            if (
+                !createdTeam ||
+                !createdTeam.mine ||
+                createdTeam.name !== trimmedName ||
+                createdTeam.maxMembers !== parsedMax ||
+                createdTeam.allowMatchmaking !== isPublic
+            ) {
+                throw new Error('Đã gửi yêu cầu tạo Team nhưng chưa xác minh được dữ liệu trên Supabase.');
+            }
+            router.replace({ pathname: '/manage-team', params: { id } });
+        } catch (error) {
+            setErrorModal({
+                visible: true,
+                title: 'Could not create team',
+                content: error instanceof Error ? error.message : String(error),
+            });
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     return (
@@ -263,8 +299,8 @@ export default function CreateTeamScreen() {
             >
                 <PrimaryButton
                     title="Create Team"
-                    disabled={!teamName.trim()}
-                    onPress={handleCreateTeam}
+                    disabled={!teamName.trim() || isSubmitting}
+                    onPress={() => { void handleCreateTeam(); }}
                 />
             </View>
 

@@ -11,142 +11,92 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Octicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { getRemotePlans } from '../api/services/plan/plan-team-supabase';
+import { getRemoteRouteSummaries } from '../api/services/route/route-read';
+import { getRemoteTeam, getRemoteTeamMembers } from '../api/services/team/team-supabase';
+import { toPlanManageDetails, type PlanDetailData } from '../api/integration/manage-plan-adapter';
 
 // Component ExpandableCard có sẵn
 import ExpandableCard from '../components/ExpandableCard';
 
-// =====================================================================
-// 1. DATA CONTRACTS (TYPES & INTERFACES)
-// =====================================================================
-export type PlanDifficulty = 'EASY' | 'MODERATE' | 'HARD' | 'EXTREME';
-
-export interface PlanMember {
-    id: string;
-    name: string;
-    avatarUrl?: string;
-}
-
-export interface PlanRouteSummary {
-    id: string;
-    name: string;
-    totalDistanceKm?: number;
-    estimatedDurationMinutes?: number;
-    startPointName?: string;
-    endPointName?: string;
-    notes?: string;
-}
-
-export interface PlanDetailData {
-    id: string;
-    name: string;
-    difficulty: PlanDifficulty;
-    description: string;
-    departureTime: string; // ISO 8601 hoặc định dạng hiển thị: "05:30 15/11/2026"
-    arrivalTime: string;   // "18:00 17/11/2026"
-    route: PlanRouteSummary;
-    team: {
-        id: string;
-        name: string;
-        members: PlanMember[];
-    };
-    noteContent?: string;  // Nội dung ghi chú hành trình
-}
-
 // Bảng màu cho từng cấp độ
-const DIFFICULTY_CONFIG: Record<PlanDifficulty, { bg: string; text: string }> = {
+const DIFFICULTY_CONFIG: Record<PlanDetailData['difficulty'], { bg: string; text: string }> = {
     EASY: { bg: '#EBF4FF', text: '#2563EB' },
     MODERATE: { bg: '#FEF3C7', text: '#D97706' },
     HARD: { bg: '#FEE2E2', text: '#DC2626' },
     EXTREME: { bg: '#EDE9FE', text: '#7C3AED' },
+    UNSPECIFIED: { bg: '#E2E8F0', text: '#64748B' },
 };
 
-// =====================================================================
-// 2. MOCK / FALLBACK DATA
-// =====================================================================
-const DEFAULT_PLAN_DATA: PlanDetailData = {
-    id: 'plan_001',
-    name: 'Trekking Tà Năng - Phan Dũng',
-    difficulty: 'EASY',
-    description: 'Chuyến đi khám phá cung đường trekking đẹp nhất miền Nam qua đồi thông và thảo nguyên bao la.',
-    departureTime: '05:30 15/11/2026',
-    arrivalTime: '18:00 17/11/2026',
-    route: {
-        id: 'route_001',
-        name: 'route A',
-        totalDistanceKm: 32.5,
-        estimatedDurationMinutes: 1200,
-        startPointName: 'Xã Tà Năng, Đức Trọng, Lâm Đồng',
-        endPointName: 'Xã Phan Dũng, Tuy Phong, Bình Thuận',
-        notes: 'Chuẩn bị nước tối thiểu 3L/ngày, giày leo núi có độ bám cao và đèn pin chuyên dụng.',
-    },
-    team: {
-        id: 'team_001',
-        name: 'Sixseven Team',
-        members: [
-            {
-                id: 'mem_1',
-                name: 'Nguyễn Văn A',
-                avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100',
-            },
-            {
-                id: 'mem_2',
-                name: 'Trần Thị B',
-                avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100',
-            },
-            {
-                id: 'mem_3',
-                name: 'Lê Văn C',
-            },
-            {
-                id: 'mem_4',
-                name: 'Phạm Thị D',
-            },
-        ],
-    },
-    noteContent: 'Mang theo áo mưa, đồ sơ cứu y tế và kiểm tra bình acquy trước khi xuất phát qua đèo.',
-};
-
-// =====================================================================
-// 3. MAIN COMPONENT
-// =====================================================================
 export default function ManagePlanScreen() {
     const router = useRouter();
     const insets = useSafeAreaInsets();
     const { id: planId } = useLocalSearchParams<{ id?: string }>();
 
-    const [planData, setPlanData] = useState<PlanDetailData>(DEFAULT_PLAN_DATA);
-    const [isLoading, setIsLoading] = useState<boolean>(false);
+    const [planData, setPlanData] = useState<PlanDetailData | null>(null);
+    const [isLoading, setIsLoading] = useState(true);
+    const [loadError, setLoadError] = useState('');
 
     useEffect(() => {
-        if (!planId) return;
-
+        let active = true;
         const loadPlanDetail = async () => {
             setIsLoading(true);
+            setPlanData(null);
+            setLoadError('');
             try {
-                console.log(`Loading plan data for ID: ${planId}`);
+                if (!planId || typeof planId !== 'string') throw new Error('Thiếu mã Plan cần xem.');
+                const plans = await getRemotePlans();
+                const plan = plans.find((item) => item.id === planId);
+                if (!plan) throw new Error('Không tìm thấy Plan hoặc bạn chưa có quyền xem.');
+                const [routesResult, teamResult, membersResult] = await Promise.allSettled([
+                    plan.routeId ? getRemoteRouteSummaries() : Promise.resolve([]),
+                    plan.teamId ? getRemoteTeam(plan.teamId) : Promise.resolve(null),
+                    plan.teamId ? getRemoteTeamMembers(plan.teamId) : Promise.resolve([]),
+                ]);
+                const routes = routesResult.status === 'fulfilled' ? routesResult.value : [];
+                const team = teamResult.status === 'fulfilled' ? teamResult.value : null;
+                const members = membersResult.status === 'fulfilled' ? membersResult.value : [];
+                if (active) setPlanData(toPlanManageDetails(
+                    plan,
+                    routes.find((route) => route.id === plan.routeId) ?? null,
+                    team,
+                    members,
+                ));
             } catch (error) {
-                console.error('Failed to load plan detail:', error);
+                if (active) setLoadError(error instanceof Error ? error.message : String(error));
             } finally {
-                setIsLoading(false);
+                if (active) setIsLoading(false);
             }
         };
-
-        loadPlanDetail();
+        void loadPlanDetail();
+        return () => { active = false; };
     }, [planId]);
 
     const handleEdit = () => {
+        if (!planData) return;
         router.push({
             pathname: '/makeaplan' as any,
             params: { editPlanId: planData.id },
         });
     };
 
-    const currentDifficulty = DIFFICULTY_CONFIG[planData.difficulty] || DIFFICULTY_CONFIG.EASY;
+    const currentDifficulty = DIFFICULTY_CONFIG[planData?.difficulty || 'UNSPECIFIED'];
 
     if (isLoading) {
         return (
             <View style={[styles.container, styles.loadingCenter]}>
                 <ActivityIndicator size="large" color="#207BFB" />
+            </View>
+        );
+    }
+
+    if (!planData) {
+        return (
+            <View style={[styles.container, { paddingTop: insets.top, paddingHorizontal: 20 }]}>
+                <TouchableOpacity onPress={() => router.back()} style={{ marginTop: 18, marginBottom: 24 }}>
+                    <Text style={{ color: '#0F172A', fontWeight: '700' }}>‹ MANAGE PLAN</Text>
+                </TouchableOpacity>
+                <Text style={{ color: '#B91C1C' }}>{loadError || 'Không có dữ liệu Plan.'}</Text>
             </View>
         );
     }

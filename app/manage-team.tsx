@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
     StyleSheet,
     View,
@@ -12,10 +12,17 @@ import {
     Dimensions,
     KeyboardAvoidingView,
     Platform,
+    ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Octicons } from '@expo/vector-icons';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
+import { getRemoteTeam, getRemoteTeamMembers, updateRemoteTeamDetails, removeRemoteTeamMember } from '../api/services/team/team-supabase';
+import {
+    approveTeamJoinRequest,
+    getTeamJoinRequests,
+    rejectTeamJoinRequest,
+} from '../api/services/team/team-join-request';
 
 import ConfirmModal from '../components/ConfirmModal';
 
@@ -47,62 +54,75 @@ export interface TeamManageData {
     pendingRequests: JoinRequestItem[];
 }
 
-const MOCK_TEAM_MANAGE: TeamManageData = {
-    id: 'team_01',
-    name: 'Sixseven Team',
-    description: 'Chuyên leo núi, trekking các cung đường Tây Bắc và cắm trại cuối tuần. Luôn đón chào các thành viên có chung đam mê khám phá thiên nhiên!',
-    isPublic: false,
-    maxMembers: 10,
-    members: [
-        {
-            id: 'u1',
-            name: 'Lê Dương',
-            username: 'leduong232',
-            role: 'LEADER',
-            avatarUrl: 'https://images.unsplash.com/photo-1543852786-1cf6624b9987?auto=format&fit=crop&q=80&w=200',
-        },
-        {
-            id: 'u2',
-            name: 'Lê Dương',
-            username: 'leduong232',
-            role: 'MEMBER',
-            avatarUrl: 'https://images.unsplash.com/photo-1543852786-1cf6624b9987?auto=format&fit=crop&q=80&w=200',
-        },
-        {
-            id: 'u3',
-            name: 'Lê Dương',
-            username: 'leduong232',
-            role: 'MEMBER',
-            avatarUrl: 'https://images.unsplash.com/photo-1543852786-1cf6624b9987?auto=format&fit=crop&q=80&w=200',
-        },
-        {
-            id: 'u4',
-            name: 'Lê Dương',
-            username: 'leduong232',
-            role: 'MEMBER',
-            avatarUrl: 'https://images.unsplash.com/photo-1543852786-1cf6624b9987?auto=format&fit=crop&q=80&w=200',
-        },
-    ],
-    pendingRequests: [
-        {
-            id: 'req_1',
-            name: 'Lê Dương',
-            username: 'leduong232',
-            avatarUrl: 'https://images.unsplash.com/photo-1543852786-1cf6624b9987?auto=format&fit=crop&q=80&w=200',
-        },
-    ],
-};
-
 export default function ManageTeamScreen() {
     const router = useRouter();
     const insets = useSafeAreaInsets();
     const params = useLocalSearchParams<{ id?: string }>();
 
-    const [team, setTeam] = useState<TeamManageData>(MOCK_TEAM_MANAGE);
+    const [team, setTeam] = useState<TeamManageData>({
+        id: '',
+        name: '',
+        description: '',
+        isPublic: true,
+        maxMembers: 20,
+        members: [],
+        pendingRequests: [],
+    });
+    const [isLoading, setIsLoading] = useState(true);
+    const [loadError, setLoadError] = useState('');
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-    const [editName, setEditName] = useState(team.name);
-    const [editDesc, setEditDesc] = useState(team.description);
-    const [editMaxMembers, setEditMaxMembers] = useState(String(team.maxMembers));
+    const [editName, setEditName] = useState('');
+    const [editDesc, setEditDesc] = useState('');
+    const [editMaxMembers, setEditMaxMembers] = useState('20');
+    const refreshTeam = useCallback(async () => {
+        setIsLoading(true);
+        setLoadError('');
+        try {
+            if (!params.id || typeof params.id !== 'string') throw new Error('Thiếu mã Team cần quản lý.');
+            const remoteTeam = await getRemoteTeam(params.id);
+            if (!remoteTeam) throw new Error('Không tìm thấy Team hoặc bạn chưa có quyền xem.');
+            const [membersResult, requestsResult] = await Promise.allSettled([
+                getRemoteTeamMembers(remoteTeam.id),
+                remoteTeam.mine ? getTeamJoinRequests(remoteTeam.id) : Promise.resolve([]),
+            ]);
+            const members = membersResult.status === 'fulfilled' ? membersResult.value : [];
+            const pendingRequests = requestsResult.status === 'fulfilled' ? requestsResult.value : [];
+            const secondaryErrors = [
+                membersResult.status === 'rejected' ? `Members: ${String(membersResult.reason)}` : '',
+                requestsResult.status === 'rejected' ? `Requests: ${String(requestsResult.reason)}` : '',
+            ].filter(Boolean);
+            setTeam({
+                id: remoteTeam.id,
+                name: remoteTeam.name,
+                description: remoteTeam.description,
+                isPublic: remoteTeam.allowMatchmaking !== false,
+                maxMembers: remoteTeam.maxMembers ?? 20,
+                members: members.map((member) => ({
+                    id: member.userId,
+                    name: member.displayName,
+                    username: member.displayName,
+                    role: member.role === 'owner' ? 'LEADER' : 'MEMBER',
+                    avatarUrl: member.avatarUrl || null,
+                })),
+                pendingRequests: pendingRequests.map((request) => ({
+                    id: request.userId,
+                    name: request.displayName,
+                    username: request.displayName,
+                    requestedAt: request.requestedAt,
+                    avatarUrl: request.avatarUrl || null,
+                })),
+            });
+            setEditName(remoteTeam.name);
+            setEditDesc(remoteTeam.description);
+            setEditMaxMembers(String(remoteTeam.maxMembers ?? 20));
+            if (secondaryErrors.length) setLoadError(secondaryErrors.join(' | '));
+        } catch (error) {
+            setLoadError(error instanceof Error ? error.message : String(error));
+        } finally {
+            setIsLoading(false);
+        }
+    }, [params.id]);
+    useFocusEffect(useCallback(() => { void refreshTeam(); }, [refreshTeam]));
 
     // Animated spring slide cho Edit Sheet
     const slideAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
@@ -153,7 +173,7 @@ export default function ManageTeamScreen() {
         setIsEditModalOpen(true);
     };
 
-    const handleAcceptRequest = (reqId: string) => {
+    const handleAcceptRequest = async (reqId: string) => {
         const req = team.pendingRequests.find((r) => r.id === reqId);
         if (!req) return;
 
@@ -170,26 +190,21 @@ export default function ManageTeamScreen() {
             return;
         }
 
-        const newMember: TeamMemberItem = {
-            id: req.id,
-            name: req.name,
-            username: req.username,
-            role: 'MEMBER',
-            avatarUrl: req.avatarUrl,
-        };
-
-        setTeam((prev) => ({
-            ...prev,
-            members: [...prev.members, newMember],
-            pendingRequests: prev.pendingRequests.filter((r) => r.id !== reqId),
-        }));
+        try {
+            await approveTeamJoinRequest(team.id, req.id);
+            await refreshTeam();
+        } catch (error) {
+            setLoadError(error instanceof Error ? error.message : String(error));
+        }
     };
 
-    const handleRejectRequest = (reqId: string) => {
-        setTeam((prev) => ({
-            ...prev,
-            pendingRequests: prev.pendingRequests.filter((r) => r.id !== reqId),
-        }));
+    const handleRejectRequest = async (reqId: string) => {
+        try {
+            await rejectTeamJoinRequest(team.id, reqId);
+            await refreshTeam();
+        } catch (error) {
+            setLoadError(error instanceof Error ? error.message : String(error));
+        }
     };
 
     const handleKickMember = (memberId: string) => {
@@ -201,22 +216,27 @@ export default function ManageTeamScreen() {
             cancelText: 'Cancel',
             destructive: true,
             onConfirm: () => {
-                setTeam((prev) => ({
-                    ...prev,
-                    members: prev.members.filter((m) => m.id !== memberId),
-                }));
-                setConfirmModal((prev) => ({ ...prev, visible: false }));
+                void (async () => {
+                    try {
+                        await removeRemoteTeamMember(team.id, memberId);
+                        await refreshTeam();
+                    } catch (error) {
+                        setLoadError(error instanceof Error ? error.message : String(error));
+                    } finally {
+                        setConfirmModal((prev) => ({ ...prev, visible: false }));
+                    }
+                })();
             },
         });
     };
 
     const handleSaveTeamInfo = () => {
         const parsedMax = parseInt(editMaxMembers, 10);
-        if (isNaN(parsedMax) || parsedMax <= 0) {
+        if (isNaN(parsedMax) || parsedMax < 2 || parsedMax > 100) {
             setConfirmModal({
                 visible: true,
                 title: 'Invalid Number',
-                content: 'Please enter a valid number of members.',
+                content: 'Member limit must be a whole number between 2 and 100.',
                 confirmText: 'OK',
                 cancelText: 'Cancel',
                 destructive: false,
@@ -238,13 +258,21 @@ export default function ManageTeamScreen() {
             return;
         }
 
-        setTeam((prev) => ({
-            ...prev,
-            name: editName.trim() || prev.name,
-            description: editDesc.trim(),
-            maxMembers: parsedMax,
-        }));
-        handleCloseEditModal();
+        void (async () => {
+            try {
+                if (!team.id) throw new Error('Thiếu mã Team cần cập nhật.');
+                await updateRemoteTeamDetails(team.id, {
+                    name: editName.trim() || team.name,
+                    description: editDesc.trim(),
+                    allowMatchmaking: team.isPublic,
+                    maxMembers: parsedMax,
+                });
+                await refreshTeam();
+                handleCloseEditModal();
+            } catch (error) {
+                setLoadError(error instanceof Error ? error.message : String(error));
+            }
+        })();
     };
 
     return (
@@ -269,6 +297,8 @@ export default function ManageTeamScreen() {
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={styles.scrollContent}
             >
+                {isLoading ? <ActivityIndicator color="#0284C7" style={{ marginBottom: 12 }} /> : null}
+                {loadError ? <Text style={{ color: '#B91C1C', marginBottom: 12 }} onPress={() => { void refreshTeam(); }}>{loadError} (tap to retry)</Text> : null}
                 {/* --- THẺ TÊN TEAM & SỐ LƯỢNG THÀNH VIÊN --- */}
                 <View style={styles.teamNameCard}>
                     <View style={styles.countBadge}>

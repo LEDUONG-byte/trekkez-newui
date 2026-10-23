@@ -2,14 +2,17 @@
 
 ## Đã nối với API Supabase
 - Login bằng Email/Password thật, restore session, session guard tab, logout. Google OAuth **chưa** tích hợp nên hiện thông báo thay vì đăng nhập giả.
-- Team: tải danh sách thật; Plan/Route: tải danh sách thật; Home: feed/following thật, like/save/follow tác giả từ server (cần quyền RLS).
-- Profile: lấy dữ liệu thật, thống kê hoạt động thật, bài đăng của mình (có ảnh), lượt follow (nếu RPC có quyền).
+- Team: tải danh sách, tạo nhóm, gửi yêu cầu tham gia, tải thành viên/yêu cầu và cập nhật thông tin nhóm từ Supabase.
+- Plan/Route: tải danh sách và chi tiết thật; tạo Plan và lưu Route lên Supabase.
+- Home: feed/following thật, like/save/follow tác giả từ server (cần quyền RLS).
+- Profile: lấy hồ sơ, thống kê hoạt động, bài đăng của mình (có ảnh) và lượt follow từ dữ liệu thật. Streak và số Route hoàn thành chưa có nguồn dữ liệu nên hiển thị trạng thái chưa khả dụng.
 - Make a plan: tải route/team/categories thật, lưu `createRemotePlan` ở nút Continue cuối. Nếu không có route thật thì chặn lưu.
 
 ## Chưa đủ để gọi hoàn chỉnh 100%
 - Google OAuth thiếu cấu hình OAuth callback/ID token.
-- Form tạo Route và tạo bài Community vẫn là UI placeholder, không có contract ghi Route đã xác minh.
-- Tạo Team từ màn hình Team chưa có form, join/invite/comment cần thiết kế logic nghiệp vụ thêm.
+- Chỉnh sửa Route chưa ghi ngược lên Supabase; trang xem Route chỉ đọc dữ liệu đã lưu.
+- Team chat vẫn là giao diện mẫu, chưa có service/API chat. Find Team map vẫn cần tọa độ địa lý trong dữ liệu Team; các địa điểm dạng chữ chưa đủ để đặt marker chính xác.
+- Quyền RLS, schema, RPC và Storage cần được xác minh trên Supabase staging bằng tài khoản test.
 - Mapbox/React Native Maps phải test trên native APK, web không thay thế được.
 - Các tính năng thiếu không đánh dấu PASS chỉ vì UI mở được.
 

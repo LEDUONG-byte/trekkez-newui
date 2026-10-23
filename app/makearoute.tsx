@@ -9,12 +9,14 @@ import {
     Modal,
     TouchableWithoutFeedback,
     ActivityIndicator,
+    Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Octicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import Mapbox from '@rnmapbox/maps';
 import * as Location from 'expo-location';
+import { saveRemoteRoute } from '../api/services/route/route-write';
 
 const MAPBOX_KEY = process.env.EXPO_PUBLIC_MAPBOX_KEY;
 if (MAPBOX_KEY) {
@@ -39,6 +41,7 @@ export default function MakeARouteScreen() {
     const [destinationText, setDestinationText] = useState('');
     const [waypointMode, setWaypointMode] = useState<'along' | 'end'>('along');
     const [isCalculatingRoute, setIsCalculatingRoute] = useState(false);
+    const [isSavingRoute, setIsSavingRoute] = useState(false);
 
     const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
 
@@ -310,9 +313,38 @@ export default function MakeARouteScreen() {
         }
     };
 
-    const handleSave = () => {
-        console.log('Saved route successfully!');
-        router.back();
+    const handleSave = async () => {
+        if (isSavingRoute) return;
+        setIsSavingRoute(true);
+        try {
+            if (!startPoint || !destinationPoint) {
+                throw new Error('Chọn điểm bắt đầu và điểm kết thúc trước khi lưu Route.');
+            }
+            const id = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (character) => {
+                const random = Math.floor(Math.random() * 16);
+                return (character === 'x' ? random : ((random & 0x3) | 0x8)).toString(16);
+            });
+            const name = [startLocationText.trim(), destinationText.trim()]
+                .filter(Boolean)
+                .join(' - ') || 'Route của tôi';
+            await saveRemoteRoute({
+                id,
+                name,
+                start: startPoint.coordinate,
+                destination: destinationPoint.coordinate,
+                stops: waypointsList.map((point) => point.coordinate),
+                geometry: routeGeometry,
+                distanceMeters: routeStats.distance,
+                durationSeconds: routeStats.duration * 60,
+            });
+            router.back();
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            if (Platform.OS === 'web' && typeof window !== 'undefined') window.alert(message);
+            else Alert.alert('Không lưu được Route', message);
+        } finally {
+            setIsSavingRoute(false);
+        }
     };
 
     const handleCenterOnUser = async () => {

@@ -224,6 +224,15 @@ export async function uploadTeam(
   expectedUserId?: string,
 ): Promise<void> {
   const auth = await requireTeamAuth(expectedUserId);
+  if (!team.id || !team.name.trim()) {
+    throw new Error("Team cần có mã và tên hợp lệ.");
+  }
+  if (
+    team.maxMembers !== undefined &&
+    (!Number.isInteger(team.maxMembers) || team.maxMembers < 2 || team.maxMembers > 100)
+  ) {
+    throw new Error("Giới hạn thành viên phải từ 2 đến 100.");
+  }
 
   await supabaseRequest("/rest/v1/teams?on_conflict=id", {
     method: "POST",
@@ -245,6 +254,9 @@ export async function uploadTeam(
         name: team.name,
 
         description: team.description,
+        max_members: team.maxMembers,
+
+        allow_matchmaking: team.allowMatchmaking,
 
         level: team.level,
 
@@ -262,6 +274,53 @@ export async function uploadTeam(
       },
     ],
   });
+}
+
+export async function updateRemoteTeamDetails(
+  teamId: string,
+  details: { name: string; description: string; allowMatchmaking: boolean; maxMembers: number },
+  expectedUserId?: string,
+): Promise<void> {
+  const auth = await requireTeamAuth(expectedUserId);
+  if (!teamId || !details.name.trim()) {
+    throw new Error("Team cần có mã và tên hợp lệ.");
+  }
+  if (!Number.isInteger(details.maxMembers) || details.maxMembers < 2 || details.maxMembers > 100) {
+    throw new Error("Giới hạn thành viên phải từ 2 đến 100.");
+  }
+  await supabaseRequest(
+    `/rest/v1/teams?id=eq.${encodeURIComponent(teamId)}&owner_id=eq.${encodeURIComponent(auth.userId)}`,
+    {
+      method: "PATCH",
+      accessToken: auth.accessToken,
+      expectedUserId: auth.userId,
+      headers: { Prefer: "return=minimal" },
+      body: {
+        name: details.name,
+        description: details.description,
+        allow_matchmaking: details.allowMatchmaking,
+        max_members: details.maxMembers,
+      },
+    },
+  );
+  const [saved] = await getAllSupabaseRows<{
+    name: string;
+    description: string | null;
+    allow_matchmaking: boolean | null;
+    max_members: number | null;
+  }>(
+    `/rest/v1/teams?id=eq.${encodeURIComponent(teamId)}&owner_id=eq.${encodeURIComponent(auth.userId)}&select=name,description,allow_matchmaking,max_members`,
+    { accessToken: auth.accessToken, expectedUserId: auth.userId },
+  );
+  if (
+    !saved ||
+    saved.name !== details.name ||
+    (saved.description ?? "") !== details.description ||
+    saved.allow_matchmaking !== details.allowMatchmaking ||
+    Number(saved.max_members) !== details.maxMembers
+  ) {
+    throw new Error("Supabase chưa xác nhận các thay đổi Team.");
+  }
 }
 
 export async function deleteRemoteTeam(

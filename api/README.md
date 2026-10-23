@@ -40,6 +40,7 @@ node api/tests/test-follow-route-fix.cjs
 node api/tests/test-manage-plan.cjs
 node api/tests/test-core-pagination.cjs
 node api/tests/test-account-profile-write.cjs
+node api/tests/test-team-write.cjs
 node api/tests/test-scope-check.cjs
 node api/scripts/check-scope.cjs
 ```

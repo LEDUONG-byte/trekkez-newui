@@ -13,9 +13,10 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Octicons } from '@expo/vector-icons';
-import { useRouter, useNavigation } from 'expo-router';
+import { useRouter, useNavigation, useLocalSearchParams } from 'expo-router';
 import Mapbox from '@rnmapbox/maps';
 import * as Location from 'expo-location';
+import { getRemoteRouteDetail } from '../api/services/route/route-detail';
 
 const MAPBOX_KEY = process.env.EXPO_PUBLIC_MAPBOX_KEY;
 if (MAPBOX_KEY) {
@@ -30,38 +31,18 @@ interface WaypointItem {
     label: string;
 }
 
-export interface RouteManageData {
-    id: string;
-    name: string;
-    description: string;
-    waypoints: WaypointItem[];
-}
-
-// Dữ liệu route mẫu có sẵn để quản lý
-const INITIAL_ROUTE_MANAGE: RouteManageData = {
-    id: 'route_01',
-    name: 'Tuyến đường Đạp xe / Đi bộ Phạm Văn Đồng',
-    description: 'Chạy dọc trục đường Phạm Văn Đồng qua các điểm nghỉ ngơi.',
-    waypoints: [
-        { id: 'wp_start', label: 'A', coordinate: [106.6860, 10.8250] },
-        { id: 'wp_1', label: '1', coordinate: [106.6870, 10.8238] },
-        { id: 'wp_2', label: '2', coordinate: [106.6880, 10.8225] },
-        { id: 'wp_end', label: 'B', coordinate: [106.6898, 10.8200] },
-    ],
-};
-
 export default function ManageRouteScreen() {
     const router = useRouter();
     const navigation = useNavigation();
+    const params = useLocalSearchParams<{ id?: string }>();
+    const routeId = typeof params.id === 'string' ? params.id : '';
     const cameraRef = useRef<any>(null);
     const insets = useSafeAreaInsets();
 
-    const initialStart = INITIAL_ROUTE_MANAGE.waypoints[0];
-    const initialEnd = INITIAL_ROUTE_MANAGE.waypoints[INITIAL_ROUTE_MANAGE.waypoints.length - 1];
-    const initialWps = INITIAL_ROUTE_MANAGE.waypoints.slice(1, -1);
-
-    const [screenState, setScreenState] = useState<ScreenState>('ROUTE_ACTIVE');
+    const [screenState, setScreenState] = useState<ScreenState>('INITIAL');
     const [isEdited, setIsEdited] = useState(false);
+    const [isLoadingRoute, setIsLoadingRoute] = useState(true);
+    const [loadError, setLoadError] = useState('');
 
     const [startLocationText, setStartLocationText] = useState('Điểm khởi hành A');
     const [destinationText, setDestinationText] = useState('Điểm kết thúc B');
@@ -76,11 +57,9 @@ export default function ManageRouteScreen() {
     const [currentZoom, setCurrentZoom] = useState<number>(15);
     const [centerLat, setCenterLat] = useState<number>(10.8225);
 
-    const [startPoint, setStartPoint] = useState<WaypointItem | null>(initialStart);
-    const [destinationPoint, setDestinationPoint] = useState<WaypointItem | null>(initialEnd);
-    const [waypointsList, setWaypointsList] = useState<WaypointItem[]>(
-        initialWps.map((wp, index) => ({ ...wp, label: `${index + 1}` }))
-    );
+    const [startPoint, setStartPoint] = useState<WaypointItem | null>(null);
+    const [destinationPoint, setDestinationPoint] = useState<WaypointItem | null>(null);
+    const [waypointsList, setWaypointsList] = useState<WaypointItem[]>([]);
 
     const [routeGeometry, setRouteGeometry] = useState<[number, number][]>([]);
     const [routeStats, setRouteStats] = useState({
@@ -155,10 +134,7 @@ export default function ManageRouteScreen() {
                     { text: 'Không lưu', style: 'destructive', onPress: () => navigation.dispatch(e.data.action) },
                     {
                         text: 'Lưu',
-                        onPress: () => {
-                            handleSave();
-                            navigation.dispatch(e.data.action);
-                        },
+                        onPress: handleSave,
                     },
                 ]
             );
@@ -166,6 +142,68 @@ export default function ManageRouteScreen() {
 
         return unsubscribe;
     }, [navigation, isEdited, startPoint, destinationPoint, waypointsList]);
+
+    useEffect(() => {
+        let active = true;
+        const loadRoute = async () => {
+            setIsLoadingRoute(true);
+            setLoadError('');
+            try {
+                if (!routeId) throw new Error('Thiếu mã Route cần xem.');
+                const remote = await getRemoteRouteDetail(routeId);
+                const remotePoints = remote.points.length >= 2
+                    ? remote.points
+                    : remote.geometry.length >= 2
+                        ? [
+                            { id: 'route-start', label: 'A', coordinate: remote.geometry[0] },
+                            { id: 'route-end', label: 'B', coordinate: remote.geometry[remote.geometry.length - 1] },
+                        ]
+                        : [];
+                if (!active) return;
+                if (remotePoints.length >= 2) {
+                    const points = remotePoints.map((point) => ({
+                        id: point.id,
+                        label: point.label,
+                        coordinate: point.coordinate,
+                    }));
+                    setStartPoint(points[0]);
+                    setDestinationPoint(points[points.length - 1]);
+                    setWaypointsList(points.slice(1, -1).map((point, index) => ({ ...point, label: `${index + 1}` })));
+                    setStartLocationText(points[0].label);
+                    setDestinationText(points[points.length - 1].label);
+                    setScreenState('ROUTE_ACTIVE');
+                } else {
+                    setStartPoint(null);
+                    setDestinationPoint(null);
+                    setWaypointsList([]);
+                    setScreenState('INITIAL');
+                    setLoadError('Route đã tải nhưng chưa có đủ waypoint để hiển thị tuyến đường.');
+                }
+                setRouteGeometry(remote.geometry);
+                setRouteStats({
+                    distance: Math.round((remote.distanceKm ?? 0) * 1000),
+                    duration: remote.durationMinutes ?? 0,
+                    elevGain: 0,
+                    elevLoss: 0,
+                });
+                if (remote.waypointError) {
+                    setLoadError(`Không tải được waypoint: ${remote.waypointError}`);
+                }
+            } catch (error) {
+                if (!active) return;
+                setStartPoint(null);
+                setDestinationPoint(null);
+                setWaypointsList([]);
+                setRouteGeometry([]);
+                setScreenState('INITIAL');
+                setLoadError(error instanceof Error ? error.message : String(error));
+            } finally {
+                if (active) setIsLoadingRoute(false);
+            }
+        };
+        void loadRoute();
+        return () => { active = false; };
+    }, [routeId]);
 
     useEffect(() => {
         if (startPoint && destinationPoint) {
@@ -343,8 +381,10 @@ export default function ManageRouteScreen() {
     };
 
     const handleSave = () => {
-        console.log('Saved updated route successfully!');
-        setIsEdited(false);
+        Alert.alert(
+            'Chưa hỗ trợ lưu Route',
+            'Route hiện được tải từ Supabase ở chế độ xem. Chỉnh sửa chưa được kết nối nên không có thay đổi nào được lưu.',
+        );
     };
 
     const handleCenterOnUser = async () => {
@@ -451,9 +491,16 @@ export default function ManageRouteScreen() {
                     <Text style={styles.calculatingText}>Updating route...</Text>
                 </View>
             )}
+            {isLoadingRoute && (
+                <View style={styles.calculatingOverlay}>
+                    <ActivityIndicator size="large" color="#2563EB" />
+                    <Text style={styles.calculatingText}>Loading saved route...</Text>
+                </View>
+            )}
 
             {/* OVERLAY UI */}
             <View style={styles.overlayContainer} pointerEvents="box-none">
+                {loadError ? <Text pointerEvents="none" style={{ color: '#B91C1C', backgroundColor: '#FFFFFF', padding: 8, marginHorizontal: 16, marginTop: insets.top + 58, borderRadius: 8 }}>{loadError}</Text> : null}
                 {/* 1. TOP HEADER */}
                 <View
                     style={[
@@ -500,10 +547,7 @@ export default function ManageRouteScreen() {
                             <TouchableOpacity
                                 style={styles.saveRouteBtn}
                                 activeOpacity={0.85}
-                                onPress={() => {
-                                    handleSave();
-                                    router.back();
-                                }}
+                                onPress={handleSave}
                             >
                                 <Text style={styles.saveRouteBtnText}>Save</Text>
                             </TouchableOpacity>

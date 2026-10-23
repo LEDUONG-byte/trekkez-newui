@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
     StyleSheet,
     View,
@@ -11,7 +11,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Octicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
+import { loadTeamCards } from '../../api/integration/newui-gateway';
+import { requestTeamJoin } from '../../api/services/team/team-join-request';
 import ExpandableCard from '../../components/ExpandableCard';
 import SearchBarHeader from '../../components/SearchBarHeader';
 
@@ -24,6 +26,8 @@ export interface TeamItem {
     id: string;
     name: string;
     isOwnedByYou: boolean;
+    isJoined?: boolean;
+    allowMatchmaking?: boolean;
     membersCount: number;
     description?: string;
     createdAt: string; // ISO format: YYYY-MM-DD
@@ -34,50 +38,26 @@ const TEAM_COLORS = {
     OTHER: '#FEF08A',
 };
 
-// =====================================================================
-// MOCK DATA
-// =====================================================================
-const INITIAL_TEAMS: TeamItem[] = [
-    {
-        id: 'team_01',
-        name: 'Sixseven Trekking Team',
-        isOwnedByYou: true,
-        membersCount: 4,
-        description: 'Specializing in mountain climbing, Northwest trekking routes, and weekend camping. Currently recruiting members for next month Fansipan summit.',
-        createdAt: '2026-08-15',
-    },
-    {
-        id: 'team_02',
-        name: 'Da Lat Hikers Club',
-        isOwnedByYou: false,
-        membersCount: 8,
-        description: 'A community for nature lovers, pine forest trail running, and cloud hunting around the Langbiang and Bidoup areas.',
-        createdAt: '2026-06-20',
-    },
-    {
-        id: 'team_03',
-        name: 'Saigon Night Cycling',
-        isOwnedByYou: false,
-        membersCount: 12,
-        description: 'Night cycling across Ho Chi Minh City routes (Thu Thiem, Pham Van Dong) every Wednesday and Saturday evening.',
-        createdAt: '2026-09-02',
-    },
-    {
-        id: 'team_04',
-        name: 'Ta Nang Expedition',
-        isOwnedByYou: true,
-        membersCount: 6,
-        description: 'Preparing for the 3-day 2-night Ta Nang - Phan Dung trek. Good physical stamina and basic outdoor gear required.',
-        createdAt: '2026-10-10',
-    },
-];
-
 export default function TeamScreen() {
     // -----------------------------------------------------------------
     // STATES MANAGEMENT
     // -----------------------------------------------------------------
-    const [teams, setTeams] = useState<TeamItem[]>(INITIAL_TEAMS);
-    const [isLoading, setIsLoading] = useState<boolean>(false);
+    const [teams, setTeams] = useState<TeamItem[]>([]);
+    const [isLoading, setIsLoading] = useState<boolean>(true);
+    const [loadError, setLoadError] = useState('');
+    const refreshTeams = useCallback(async () => {
+        setIsLoading(true);
+        setLoadError('');
+        try {
+            setTeams(await loadTeamCards());
+        } catch (error) {
+            setTeams([]);
+            setLoadError(error instanceof Error ? error.message : String(error));
+        } finally {
+            setIsLoading(false);
+        }
+    }, []);
+    useFocusEffect(useCallback(() => { void refreshTeams(); }, [refreshTeams]));
 
     // Search States
     const [isSearchActive, setIsSearchActive] = useState<boolean>(false);
@@ -156,6 +136,15 @@ export default function TeamScreen() {
         });
     };
 
+    const handleRequestJoin = async (team: TeamItem) => {
+        try {
+            await requestTeamJoin(team.id);
+            await refreshTeams();
+        } catch (error) {
+            setLoadError(error instanceof Error ? error.message : String(error));
+        }
+    };
+
     return (
         <SafeAreaView style={styles.container}>
             <ScrollView
@@ -199,6 +188,7 @@ export default function TeamScreen() {
                 </View>
 
                 <View style={styles.dashedLine} />
+                {loadError ? <Text style={{ color: '#B91C1C', marginHorizontal: 24, marginBottom: 12 }} onPress={() => { void refreshTeams(); }}>{loadError} (tap to retry)</Text> : null}
 
                 {/* --- LEGEND & SORT BAR --- */}
                 {!isEmpty && (
@@ -296,11 +286,24 @@ export default function TeamScreen() {
                                                 >
                                                     <Text style={styles.manageBtnText}>Manage Team</Text>
                                                 </TouchableOpacity>
-                                            ) : (
+                                            ) : team.isJoined ? (
                                                 <View style={styles.memberStatusBadge}>
                                                     <Octicons name="check-circle" size={13} color="#059669" />
                                                     <Text style={styles.memberStatusText}>Joined as Member</Text>
                                                 </View>
+                                            ) : team.allowMatchmaking === false ? (
+                                                <View style={styles.memberStatusBadge}>
+                                                    <Octicons name="lock" size={13} color="#64748B" />
+                                                    <Text style={styles.memberStatusText}>Invite only</Text>
+                                                </View>
+                                            ) : (
+                                                <TouchableOpacity
+                                                    style={styles.manageBtn}
+                                                    activeOpacity={0.8}
+                                                    onPress={() => { void handleRequestJoin(team); }}
+                                                >
+                                                    <Text style={styles.manageBtnText}>Request to Join</Text>
+                                                </TouchableOpacity>
                                             )}
                                         </View>
                                     </View>

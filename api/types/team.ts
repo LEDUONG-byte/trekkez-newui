@@ -42,6 +42,8 @@ export type TeamInput = {
 
   name: string;
   description: string;
+  maxMembers?: number;
+  allowMatchmaking?: boolean;
 
   level: string;
   location: string;

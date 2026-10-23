@@ -63,18 +63,6 @@ export interface ItemCategory {
     items: string[];
 }
 
-const MOCK_ROUTES: RouteItem[] = [
-    { id: 'r1', title: 'route A', color: '#A7F3D0', startDate: '2026-10-22', createdAt: '2026-09-15' },
-    { id: 'r2', title: 'route B', color: '#A7F3D0', startDate: '2026-10-20', createdAt: '2026-10-05' },
-    { id: 'r3', title: 'route C', color: '#DDD6FE', startDate: '2026-11-20', createdAt: '2026-08-10' },
-    { id: 'r4', title: 'route D', color: '#A7F3D0', startDate: '2026-12-05', createdAt: '2026-09-28' },
-];
-
-const MOCK_TEAMS = [
-    { id: 't1', name: 'Sixseven Team' },
-    { id: 't2', name: 'Alpha Team' },
-];
-
 const MOCK_FRIENDS: UserCardData[] = []; // No fake user IDs may be selected for real invitations.
 
 const INITIAL_ITEM_CATEGORIES: ItemCategory[] = [

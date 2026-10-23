@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
     StyleSheet,
     View,
@@ -11,7 +11,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Octicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
+import { loadPlanCards, loadRouteCards } from '../../api/integration/newui-gateway';
 import ExpandableCard from '../../components/ExpandableCard';
 import SearchBarHeader from '../../components/SearchBarHeader';
 
@@ -30,54 +31,31 @@ export interface PlanItem {
     createdAt: string; // Định dạng ISO: YYYY-MM-DD
 }
 
-// =====================================================================
-// MOCK DATA
-// =====================================================================
-const INITIAL_PLANS: PlanItem[] = [
-    {
-        id: 'p1',
-        title: 'Plan A',
-        isOwnedByYou: true,
-        details: 'Lịch trình du lịch Đà Lạt 3 ngày 2 đêm cùng bạn bè',
-        startDate: '2026-11-15',
-        createdAt: '2026-08-01',
-    },
-    {
-        id: 'p2',
-        title: 'Plan B',
-        isOwnedByYou: true,
-        details: 'Chuyến cắm trại hồ Trị An',
-        startDate: '2026-10-25',
-        createdAt: '2026-09-10',
-    },
-    {
-        id: 'p3',
-        title: 'Plan C',
-        isOwnedByYou: true,
-        details: 'Phượt Tây Bắc ngắm lúa chín',
-        startDate: '2026-12-01',
-        createdAt: '2026-07-20',
-    },
-];
-
-const INITIAL_ROUTES: PlanItem[] = [
-    {
-        id: 'r1',
-        title: 'route A',
-        isOwnedByYou: true,
-        details: 'Lộ trình đạp xe quanh Hồ Tây - 15km',
-        startDate: '2026-10-22',
-        createdAt: '2026-09-15',
-    },
-];
-
 export default function PlanScreen() {
     // -----------------------------------------------------------------
     // STATES MANAGEMENT
     // -----------------------------------------------------------------
-    const [plans, setPlans] = useState<PlanItem[]>(INITIAL_PLANS);
-    const [routes, setRoutes] = useState<PlanItem[]>(INITIAL_ROUTES);
-    const [isLoading, setIsLoading] = useState<boolean>(false);
+    const [plans, setPlans] = useState<PlanItem[]>([]);
+    const [routes, setRoutes] = useState<PlanItem[]>([]);
+    const [isLoading, setIsLoading] = useState<boolean>(true);
+    const [loadError, setLoadError] = useState('');
+    const refresh = useCallback(async () => {
+        setIsLoading(true);
+        setLoadError('');
+        const [planResult, routeResult] = await Promise.allSettled([loadPlanCards(), loadRouteCards()]);
+        setPlans(planResult.status === 'fulfilled' ? planResult.value : []);
+        setRoutes(routeResult.status === 'fulfilled' ? routeResult.value : []);
+        const errors: string[] = [];
+        if (planResult.status === 'rejected') {
+            errors.push(`Plan: ${planResult.reason instanceof Error ? planResult.reason.message : String(planResult.reason)}`);
+        }
+        if (routeResult.status === 'rejected') {
+            errors.push(`Route: ${routeResult.reason instanceof Error ? routeResult.reason.message : String(routeResult.reason)}`);
+        }
+        setLoadError(errors.join(' | '));
+        setIsLoading(false);
+    }, []);
+    useFocusEffect(useCallback(() => { void refresh(); }, [refresh]));
 
     // Search States
     const [isSearchActive, setIsSearchActive] = useState<boolean>(false);
@@ -228,6 +206,7 @@ export default function PlanScreen() {
                 </View>
 
                 <View style={styles.dashedLine} />
+                {loadError ? <Text style={{ color: '#B91C1C', marginHorizontal: 24, marginBottom: 12 }} onPress={() => { void refresh(); }}>{loadError} (tap to retry)</Text> : null}
 
                 {/* --- FILTER BAR --- */}
                 {!isEmpty && (
@@ -283,7 +262,7 @@ export default function PlanScreen() {
                                 id={item.id}
                                 title={item.title}
                                 iconName={subTab === 'PLAN' ? 'bookmark' : 'git-branch'}
-                                isOwnedByYou={true}
+                                isOwnedByYou={item.isOwnedByYou}
                                 headerColor={subTab === 'PLAN' ? '#bee8ff' : '#f6eab2'}
                                 defaultExpanded={false}
                                 onTitlePress={() => handleItemPress(item)}

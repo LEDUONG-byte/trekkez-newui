@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
     StyleSheet,
     View,
@@ -8,10 +8,14 @@ import {
     ScrollView,
     Dimensions,
     ImageSourcePropType,
+    ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Octicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
+import { loadProfileOverview } from '../../api/integration/newui-gateway';
+import { getPublicProfile } from '../../api/services/community/social-supabase';
+import { getRemoteCommunityPosts } from '../../api/services/community/community-supabase';
 
 const { width } = Dimensions.get('window');
 
@@ -100,49 +104,87 @@ interface TimelinePost {
 }
 
 // =====================================================================
-// 4. MOCK DATA
-// =====================================================================
-const MOCK_USER_PROFILE: UserProfile = {
-    id: 'usr_12345',
-    fullName: 'Le Van Duong',
-    username: 'duong_duong',
-    avatarUrl: require('../../assets/images/logoW.png'),
-    followersCount: 1240,
-    followingCount: 350,
-};
-
-const MOCK_USER_STATS: UserStats = {
-    highlightCards: [
-        { label: 'Total Distance', value: '128 km', color: '#BAE6FD' },
-        { label: 'Completed Routes', value: '12', color: '#FEF08A' },
-        { label: 'Moving Time', value: '54 hrs', color: '#86EFAC' },
-        { label: 'Elevation Gain', value: '1,450 m', color: '#DDD6FE' },
-    ],
-    totalActivities: 15,
-    totalDistanceKm: 128,
-    movingTimeFormatted: '54h 20m',
-    currentStreak: 30,
-    streakTitle: 'How it work?',
-    streakGoalText: 'Go outside and touch grass for 15 min',
-};
-
-const MOCK_TIMELINE_POSTS: TimelinePost[] = [
-    { id: 'post_1', imageUrl: require('../../assets/images/onboarding1.png') },
-    { id: 'post_2', imageUrl: require('../../assets/images/onboarding2.png') },
-    { id: 'post_3', imageUrl: require('../../assets/images/logoW.png') },
-    { id: 'post_4', imageUrl: require('../../assets/images/onboarding1.png') },
-];
-
-// =====================================================================
 // 5. MAIN COMPONENT SCREEN
 // =====================================================================
 export default function ProfileScreen() {
     const router = useRouter();
     const [activeTab, setActiveTab] = useState<'STATS' | 'TIMELINE'>('STATS');
-
-    const profileData: UserProfile = MOCK_USER_PROFILE;
-    const statsData: UserStats = MOCK_USER_STATS;
-    const timelineData: TimelinePost[] = MOCK_TIMELINE_POSTS;
+    const [profileData, setProfileData] = useState<UserProfile>({
+        id: '',
+        fullName: '',
+        username: '',
+        avatarUrl: require('../../assets/images/logoW.png'),
+        followersCount: 0,
+        followingCount: 0,
+    });
+    const [statsData, setStatsData] = useState<UserStats>({
+        highlightCards: [
+            { label: 'Total Distance', value: '0 km', color: '#BAE6FD' },
+            { label: 'Completed Routes', value: '—', color: '#FEF08A' },
+            { label: 'Moving Time', value: '0h 0m', color: '#86EFAC' },
+            { label: 'Elevation Gain', value: '0 m', color: '#DDD6FE' },
+        ],
+        totalActivities: 0,
+        totalDistanceKm: 0,
+        movingTimeFormatted: '0h 0m',
+        currentStreak: 0,
+        streakTitle: 'Streak not available',
+        streakGoalText: 'Streak calculation is not connected yet',
+    });
+    const [timelineData, setTimelineData] = useState<TimelinePost[]>([]);
+    const [loadError, setLoadError] = useState('');
+    const [busy, setBusy] = useState(true);
+    const refresh = useCallback(async () => {
+        setBusy(true);
+        setLoadError('');
+        try {
+            const overview = await loadProfileOverview();
+            const [socialResult, postsResult] = await Promise.allSettled([
+                getPublicProfile(overview.id),
+                getRemoteCommunityPosts(),
+            ]);
+            const errors: string[] = [];
+            if (socialResult.status === 'rejected') {
+                errors.push(`Social: ${socialResult.reason instanceof Error ? socialResult.reason.message : String(socialResult.reason)}`);
+            }
+            if (postsResult.status === 'rejected') {
+                errors.push(`Posts: ${postsResult.reason instanceof Error ? postsResult.reason.message : String(postsResult.reason)}`);
+            }
+            const social = socialResult.status === 'fulfilled' ? socialResult.value : null;
+            const posts = postsResult.status === 'fulfilled' ? postsResult.value : [];
+            setProfileData({
+                id: overview.id,
+                fullName: overview.fullName || overview.username || 'TrekkEZ user',
+                username: overview.username || overview.id.slice(0, 8),
+                avatarUrl: overview.avatarUrl || require('../../assets/images/logoW.png'),
+                followersCount: social?.followerCount ?? 0,
+                followingCount: social?.followingCount ?? 0,
+            });
+            setTimelineData(posts
+                .filter((post) => post.authorId === overview.id && Boolean(post.image))
+                .map((post) => ({ id: post.id, imageUrl: post.image! })));
+            setStatsData({
+                highlightCards: [
+                    { label: 'Total Distance', value: `${overview.totalDistanceKm} km`, color: '#BAE6FD' },
+                    { label: 'Completed Routes', value: '—', color: '#FEF08A' },
+                    { label: 'Moving Time', value: overview.movingTimeFormatted, color: '#86EFAC' },
+                    { label: 'Elevation Gain', value: `${overview.totalElevationGainMeters} m`, color: '#DDD6FE' },
+                ],
+                totalActivities: overview.totalActivities,
+                totalDistanceKm: overview.totalDistanceKm,
+                movingTimeFormatted: overview.movingTimeFormatted,
+                currentStreak: 0,
+                streakTitle: 'Streak not available',
+                streakGoalText: 'Streak calculation is not connected yet',
+            });
+            setLoadError(errors.join(' | '));
+        } catch (error) {
+            setLoadError(error instanceof Error ? error.message : String(error));
+        } finally {
+            setBusy(false);
+        }
+    }, []);
+    useFocusEffect(useCallback(() => { void refresh(); }, [refresh]));
 
     const streakColors = getStreakColors(statsData.currentStreak);
 
@@ -170,6 +212,8 @@ export default function ProfileScreen() {
                         </TouchableOpacity>
                     </View>
                 </View>
+                {busy ? <ActivityIndicator color="#0284C7" style={{ marginBottom: 12 }} /> : null}
+                {loadError ? <Text style={{ color: '#B91C1C', marginHorizontal: 24, marginBottom: 12 }} onPress={() => { void refresh(); }}>{loadError} (tap to retry)</Text> : null}
 
                 {/* --- USER INFO ROW --- */}
                 <View style={styles.userInfoSection}>
